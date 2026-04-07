@@ -1,0 +1,14 @@
+---
+description: Core project workflow and priorities
+alwaysApply: true
+---
+
+# Core Project Rule
+
+- User's explicit instruction has highest priority. If user asks to ignore or bypass these rules for a task, follow the user.
+- Follow project delivery order: MVP-1 (one complete mission) first, then MVP-2 (scale to three missions).
+- Keep decisions aligned with `context.md`, `manual.md`, `TASKLIST.md`, and `STAGE_0.md`.
+- Do not overengineer MVP-1. Prefer simple, testable solutions.
+- Before substantial edits, state what will be changed and why.
+- After substantial edits, update relevant docs/checklists when scope or behavior changed.
+- Use concise, actionable outputs focused on implementation steps.

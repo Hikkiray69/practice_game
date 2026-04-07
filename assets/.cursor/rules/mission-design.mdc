@@ -1,0 +1,14 @@
+---
+description: Mission design contract linked to company values
+alwaysApply: true
+---
+
+# Mission Design Contract
+
+- Every mission must map to a value/principle from the spec.
+- Mission structure is mandatory: `goal -> interaction -> choice -> consequence -> progress update`.
+- For MVP-1, prioritize mission "Responsibility" and make it fully playable end-to-end.
+- Include at least one meaningful branch in player choice.
+- Consequences must be visible to player (HUD/result screen/dialogue outcome).
+- Keep mission text concise and clear; avoid vague outcomes.
+- If adding mission content, update relevant docs/checklist status.

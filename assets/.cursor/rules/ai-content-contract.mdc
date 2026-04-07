@@ -1,0 +1,26 @@
+---
+description: AI dialogue and hint output contract
+alwaysApply: true
+---
+
+# AI Content Contract
+
+- AI output for gameplay must be structured and deterministic enough for UI rendering.
+- Prefer fixed schemas/templates for dialogues, choices, and hints.
+- Keep language concise, in-game, and value-linked.
+- If AI fails or is unavailable, use static fallback content without breaking flow.
+- Validate generated content before displaying or storing it.
+- Never let AI output bypass mission logic constraints.
+---
+description: AI dialogue and hint output contract
+alwaysApply: true
+---
+
+# AI Content Contract
+
+- AI output for gameplay must be structured and deterministic enough for UI rendering.
+- Prefer fixed schemas/templates for dialogues, choices, and hints.
+- Keep language concise, in-game, and value-linked.
+- If AI fails or is unavailable, use static fallback content without breaking flow.
+- Validate generated content before displaying or storing it.
+- Never let AI output bypass mission logic constraints.
