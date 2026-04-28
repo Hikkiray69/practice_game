@@ -1,0 +1,14 @@
+---
+description: 3D scene performance guardrails
+globs: src/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# Three.js Performance Guardrails
+
+- For MVP-1, keep scene minimal: basic lighting, simple geometry, lightweight assets.
+- Avoid unnecessary per-frame allocations in render/update loops.
+- Keep animation/update logic centralized and measurable.
+- Defer visual polish that harms stability or FPS.
+- Prefer interaction clarity over visual complexity.
+- Introduce optimization only when a concrete bottleneck is observed.

@@ -1,0 +1,14 @@
+---
+description: Enforce FSD layer boundaries and public API usage
+alwaysApply: true
+---
+
+# FSD Boundaries
+
+- Use FSD layers: `app`, `processes`, `pages`, `features`, `entities`, `shared`.
+- Keep business logic in `model`; UI components stay in `ui`; helpers in `lib`.
+- Do not place business rules inside view components.
+- Cross-feature imports must go through stable public API, not deep internal paths.
+- Prefer imports via each slice `index.ts` public API.
+- New functionality should be added to an existing slice first; create a new slice only when responsibility is truly new.
+- If a change breaks layer boundaries, refactor instead of patching around it.

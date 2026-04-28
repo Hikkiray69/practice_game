@@ -1,0 +1,15 @@
+---
+description: TypeScript and React standards for source files
+globs: src/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+# TypeScript + React Standards
+
+- Prefer explicit types for public APIs, props, and return values.
+- Avoid `any`; if unavoidable, annotate why and keep scope minimal.
+- Keep components focused; move non-UI logic into hooks/model.
+- Handle async errors explicitly; no silent catches.
+- Prefer small pure utility functions in `shared/lib` or slice `lib`.
+- Use clear naming: verbs for actions, nouns for models/entities.
+- Keep side effects isolated and predictable.
