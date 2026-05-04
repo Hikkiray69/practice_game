@@ -21,11 +21,27 @@ export function GameScreen() {
     consequence,
     totals,
     hasNextMission,
+    isCampaignFinished,
     startMission,
     selectChoice,
     retryMission,
     goToNextMission,
+    restartCampaign,
   } = useMission();
+
+  const requiredNpcId =
+    mission.valueTag === "responsibility"
+      ? "npc-responsibility"
+      : mission.valueTag === "transparency"
+        ? "npc-transparency"
+        : "npc-speed";
+
+  const requiredNpcRole =
+    mission.valueTag === "responsibility"
+      ? "Ответственность"
+      : mission.valueTag === "transparency"
+        ? "Прозрачность"
+        : "Скорость";
 
   async function handleAskAiHint() {
     setAiLoading(true);
@@ -40,46 +56,56 @@ export function GameScreen() {
   }
 
   return (
-    <main className="page">
-      <header className="topbar">
-        <h1>Interactive Learning Game</h1>
-        <p>MVP-1: миссия &quot;Ответственность&quot;</p>
-      </header>
+    <main className="gameRoot">
+      <SceneCanvas
+        activeNpcId={requiredNpcId}
+        onNpcInteract={(npcId) => {
+          if (npcId === requiredNpcId) {
+            setNpcInteracted(true);
+          }
+        }}
+      />
 
-      <section className="layout">
-        <SceneCanvas onNpcInteract={() => setNpcInteracted(true)} />
-        <div className="sidebar">
-          <Hud
-            missionTitle={mission.title}
-            missionProgressLabel={`${missionIndex + 1}/${totalMissions}`}
-            status={status}
-            consequence={consequence}
-            totals={totals}
-          />
-          <DialoguePanel
-            mission={mission}
-            status={status}
-            consequenceSummary={consequence?.summary ?? null}
-            canStart={npcInteracted}
-            hasNextMission={hasNextMission}
-            aiDialogue={aiDialogue}
-            aiHint={aiHint}
-            aiQuestVariation={aiQuestVariation}
-            aiLoading={aiLoading}
-            onStart={startMission}
-            onChoose={selectChoice}
-            onRetry={retryMission}
-            onAskAiHint={handleAskAiHint}
-            onNextMission={() => {
-              setNpcInteracted(false);
-              setAiDialogue(null);
-              setAiHint(null);
-              setAiQuestVariation(null);
-              goToNextMission();
-            }}
-          />
-        </div>
-      </section>
+      <Hud
+        missionTitle={mission.title}
+        objectiveText={`Иди к NPC зоны "${requiredNpcRole}" и нажми E`}
+        missionProgressLabel={`${missionIndex + 1}/${totalMissions}`}
+        missionProgressValue={(missionIndex + (status === "completed" ? 1 : 0)) / totalMissions}
+        status={status}
+      />
+
+      <DialoguePanel
+        isOpen={npcInteracted || status === "inProgress" || status === "completed"}
+        mission={mission}
+        status={status}
+        consequenceSummary={consequence?.summary ?? null}
+        canStart={npcInteracted}
+        hasNextMission={hasNextMission}
+        aiDialogue={aiDialogue}
+        aiHint={aiHint}
+        aiQuestVariation={aiQuestVariation}
+        aiLoading={aiLoading}
+        totals={totals}
+        isCampaignFinished={isCampaignFinished}
+        onStart={startMission}
+        onChoose={selectChoice}
+        onRetry={retryMission}
+        onRestartCampaign={() => {
+          setNpcInteracted(false);
+          setAiDialogue(null);
+          setAiHint(null);
+          setAiQuestVariation(null);
+          restartCampaign();
+        }}
+        onAskAiHint={handleAskAiHint}
+        onNextMission={() => {
+          setNpcInteracted(false);
+          setAiDialogue(null);
+          setAiHint(null);
+          setAiQuestVariation(null);
+          goToNextMission();
+        }}
+      />
     </main>
   );
 }

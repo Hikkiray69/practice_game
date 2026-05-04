@@ -17,6 +17,7 @@ export function useMission() {
 
   const mission = allMissions[missionIndex];
   const hasNextMission = missionIndex < allMissions.length - 1;
+  const isCampaignFinished = !hasNextMission && status === "completed";
 
   const consequence: QuestConsequence | null = useMemo(() => {
     if (!selectedChoice) {
@@ -73,11 +74,19 @@ export function useMission() {
     setSelectedChoice(null);
   }
 
+  function restartCampaign() {
+    setMissionIndex(0);
+    setStatus("new");
+    setSelectedChoice(null);
+    setTotals({ score: 0, quality: 0, speed: 0 });
+  }
+
   return {
     mission,
     missionIndex,
     totalMissions: allMissions.length,
     hasNextMission,
+    isCampaignFinished,
     status,
     selectedChoice,
     consequence,
@@ -86,5 +95,6 @@ export function useMission() {
     selectChoice,
     retryMission,
     goToNextMission,
+    restartCampaign,
   };
 }

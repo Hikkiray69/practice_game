@@ -1,33 +1,38 @@
-import { QuestConsequence, QuestStatus } from "@/entities/quest";
+import { QuestStatus } from "@/entities/quest";
 import { STATUS_LABELS } from "@/shared/constants/hud";
-import { formatMetric } from "@/shared/lib/formatMetric";
 
 interface HudProps {
   missionTitle: string;
+  objectiveText: string;
   missionProgressLabel: string;
+  missionProgressValue: number; // 0..1
   status: QuestStatus;
-  consequence: QuestConsequence | null;
-  totals: {
-    score: number;
-    quality: number;
-    speed: number;
-  };
 }
 
-export function Hud({ missionTitle, missionProgressLabel, status, consequence, totals }: HudProps) {
+export function Hud({
+  missionTitle,
+  objectiveText,
+  missionProgressLabel,
+  missionProgressValue,
+  status,
+}: HudProps) {
+  const progressPercent = `${Math.round(Math.max(0, Math.min(1, missionProgressValue)) * 100)}%`;
+
   return (
-    <aside className="hud">
-      <h3>HUD</h3>
-      <p>Миссия: {missionTitle}</p>
-      <p>Прогресс: {missionProgressLabel}</p>
-      <p>Статус миссии: {STATUS_LABELS[status]}</p>
-      <p>Изменение очков: {formatMetric(consequence?.scoreDelta ?? 0)}</p>
-      <p>Изменение качества: {formatMetric(consequence?.qualityDelta ?? 0)}</p>
-      <p>Изменение скорости: {formatMetric(consequence?.speedDelta ?? 0)}</p>
-      <hr />
-      <p>Суммарные очки: {formatMetric(totals.score)}</p>
-      <p>Суммарное качество: {formatMetric(totals.quality)}</p>
-      <p>Суммарная скорость: {formatMetric(totals.speed)}</p>
+    <aside className="hudTop">
+      <div className="hudCard">
+        <div className="hudTitle">SOC Training Hub</div>
+        <div className="hudSub">Миссия {missionProgressLabel}</div>
+        <div className="progressBar" style={{ ["--progress" as never]: progressPercent }}>
+          <div className="progressFill" />
+        </div>
+      </div>
+
+      <div className="hudCard">
+        <div className="hudTitle">{missionTitle}</div>
+        <div className="hudSub">Статус: {STATUS_LABELS[status]}</div>
+        <div className="hudSub">Цель: {objectiveText}</div>
+      </div>
     </aside>
   );
 }

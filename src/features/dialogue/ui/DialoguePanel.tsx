@@ -3,6 +3,7 @@
 import { QuestScenario, QuestStatus } from "@/entities/quest";
 
 interface DialoguePanelProps {
+  isOpen: boolean;
   mission: QuestScenario;
   status: QuestStatus;
   consequenceSummary: string | null;
@@ -12,14 +13,22 @@ interface DialoguePanelProps {
   aiHint: string | null;
   aiQuestVariation: string | null;
   aiLoading: boolean;
+  totals: {
+    score: number;
+    quality: number;
+    speed: number;
+  };
+  isCampaignFinished: boolean;
   onStart: () => void;
   onChoose: (choiceId: string) => void;
   onRetry: () => void;
   onNextMission: () => void;
+  onRestartCampaign: () => void;
   onAskAiHint: () => void;
 }
 
 export function DialoguePanel({
+  isOpen,
   mission,
   status,
   consequenceSummary,
@@ -29,37 +38,54 @@ export function DialoguePanel({
   aiHint,
   aiQuestVariation,
   aiLoading,
+  totals,
+  isCampaignFinished,
   onStart,
   onChoose,
   onRetry,
   onNextMission,
+  onRestartCampaign,
   onAskAiHint,
 }: DialoguePanelProps) {
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <section className="panel">
-      <h2>{mission.title}</h2>
-      <p>{mission.intro}</p>
+    <div className="modalBackdrop">
+      <section className="dialogueOverlay" role="dialog" aria-modal="true">
+        <div className="dialogueTitle">{mission.title}</div>
+        <div className="dialogueText">{mission.intro}</div>
 
       {status === "new" && canStart && (
-        <button className="button" type="button" onClick={onStart}>
-          Начать миссию
-        </button>
+        <div className="dialogueActions">
+          <button className="button" type="button" onClick={onStart}>
+            Начать миссию
+          </button>
+          <button className="button secondary" type="button" onClick={onAskAiHint} disabled={aiLoading}>
+            {aiLoading ? "AI думает..." : "AI подсказка"}
+          </button>
+        </div>
       )}
 
       {status === "new" && !canStart && (
         <div className="resultBox">
-          <p>Сначала подойди к NPC (куб) и кликни по нему, чтобы начать разговор.</p>
+          <p className="dialogueText">Подойди к NPC нужной зоны и нажми E, чтобы начать.</p>
         </div>
       )}
 
       {status === "inProgress" && (
         <div className="choiceList">
-          <button className="button" type="button" onClick={onAskAiHint} disabled={aiLoading}>
-            {aiLoading ? "AI думает..." : "Спросить AI-подсказку"}
-          </button>
-          {aiDialogue && <p>{aiDialogue}</p>}
-          {aiHint && <p>Подсказка: {aiHint}</p>}
-          {aiQuestVariation && <p>AI-вариация: {aiQuestVariation}</p>}
+          <div className="dialogueActions">
+            <button className="button secondary" type="button" onClick={onAskAiHint} disabled={aiLoading}>
+              {aiLoading ? "AI думает..." : "AI подсказка"}
+            </button>
+          </div>
+
+          {aiDialogue && <p className="dialogueText">{aiDialogue}</p>}
+          {aiHint && <p className="dialogueText">Подсказка: {aiHint}</p>}
+          {aiQuestVariation && <p className="dialogueText">Вариация: {aiQuestVariation}</p>}
+
           {mission.choices.map((choice) => (
             <button
               className="button secondary"
@@ -73,21 +99,40 @@ export function DialoguePanel({
         </div>
       )}
 
-      {status === "completed" && consequenceSummary && (
-        <div className="resultBox">
-          <p>{consequenceSummary}</p>
-          <button className="button" type="button" onClick={onRetry}>
-            Право на ошибку: попробовать еще раз
-          </button>
-          {hasNextMission ? (
-            <button className="button secondary" type="button" onClick={onNextMission}>
-              Перейти к следующей миссии
-            </button>
-          ) : (
-            <p>Все миссии MVP-2 пройдены.</p>
-          )}
-        </div>
-      )}
-    </section>
+        {status === "completed" && consequenceSummary && !isCampaignFinished && (
+          <div className="resultBox">
+            <p className="dialogueText">{consequenceSummary}</p>
+            <div className="dialogueActions">
+              <button className="button secondary" type="button" onClick={onRetry}>
+                Попробовать еще раз
+              </button>
+              {hasNextMission ? (
+                <button className="button" type="button" onClick={onNextMission}>
+                  Следующая миссия
+                </button>
+              ) : (
+                <button className="button" type="button" onClick={onRetry}>
+                  Пройти снова
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {isCampaignFinished && (
+          <div className="resultBox">
+            <p className="dialogueText">Все 3 миссии завершены. Итоги прохождения:</p>
+            <div className="dialogueText">Очки: {totals.score}</div>
+            <div className="dialogueText">Качество: {totals.quality}</div>
+            <div className="dialogueText">Скорость: {totals.speed}</div>
+            <div className="dialogueActions">
+              <button className="button" type="button" onClick={onRestartCampaign}>
+                Попробовать снова (все 3 миссии)
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
