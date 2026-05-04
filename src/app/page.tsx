@@ -1,5 +1,5 @@
-import { GameScreen } from "@/app/game-screen/ui/GameScreen";
+import { GameEntry } from "@/app/game-entry/ui/GameEntry";
 
 export default function Home() {
-  return <GameScreen />;
+  return <GameEntry />;
 }

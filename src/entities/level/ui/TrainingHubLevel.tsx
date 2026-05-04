@@ -2,21 +2,37 @@
 
 import { Environment } from "@react-three/drei";
 import { useMemo } from "react";
-import { createCarpetTexture, createConcreteTexture, createFabricNoiseTexture, createSoilTexture } from "@/shared/lib/threeTextures";
+import {
+  createCeilingTileTexture,
+  createConcreteTexture,
+  createFabricNoiseTexture,
+  createParquetTexture,
+  createSoilTexture,
+  createWoodLaminateTexture,
+} from "@/shared/lib/threeTextures";
+import { officeVisual as ov } from "../model/officeVisual";
 
 function CeilingLight({
   position,
   size,
   intensity = 0.9,
+  emissive = "#e8eef8",
 }: {
   position: [number, number, number];
   size: [number, number];
   intensity?: number;
+  emissive?: string;
 }) {
   return (
     <mesh position={position} rotation={[Math.PI / 2, 0, 0]}>
       <planeGeometry args={size} />
-      <meshStandardMaterial color="#0b1020" emissive="#e2e8f0" emissiveIntensity={intensity} />
+      <meshStandardMaterial
+        color={ov.ink}
+        emissive={emissive}
+        emissiveIntensity={intensity}
+        roughness={ov.rough.matte}
+        metalness={ov.metal.low}
+      />
     </mesh>
   );
 }
@@ -71,7 +87,7 @@ function LowPlanterRow({
       items.push(
         <mesh key={`f-${clusterSeed}-${i}`} position={[x, y, z]}>
           <sphereGeometry args={[0.035, 8, 8]} />
-          <meshStandardMaterial color={col} roughness={0.55} metalness={0.0} emissive={col} emissiveIntensity={0.08} />
+          <meshStandardMaterial color={col} roughness={0.62} metalness={0.0} emissive={col} emissiveIntensity={0.035} />
         </mesh>,
       );
     }
@@ -88,31 +104,31 @@ function LowPlanterRow({
             {/* outer rim */}
             <mesh position={[0, rimH / 2, 0]}>
               <boxGeometry args={[moduleLen, rimH, innerW]} />
-              <meshStandardMaterial color="#111827" metalness={0.12} roughness={0.85} />
+              <meshStandardMaterial color={ov.planterRim} metalness={ov.metal.frame} roughness={ov.rough.wall} />
             </mesh>
 
             {/* soil bed */}
             <mesh position={[0, rimH + 0.02, 0]}>
               <boxGeometry args={[moduleLen - 0.12, 0.04, innerD]} />
-              <meshStandardMaterial map={soilMap} color="#2a241c" roughness={0.98} metalness={0.0} />
+              <meshStandardMaterial map={soilMap} color={ov.soilTint} roughness={ov.rough.matte} metalness={0.0} />
             </mesh>
 
             {/* small feet */}
             <mesh position={[-moduleLen / 2 + 0.12, 0.05, -innerW / 2 + 0.06]}>
               <boxGeometry args={[0.08, 0.1, 0.08]} />
-              <meshStandardMaterial color="#0b1020" metalness={0.25} roughness={0.65} />
+              <meshStandardMaterial color={ov.planterFeet} metalness={ov.metal.leg} roughness={ov.rough.metal} />
             </mesh>
             <mesh position={[moduleLen / 2 - 0.12, 0.05, -innerW / 2 + 0.06]}>
               <boxGeometry args={[0.08, 0.1, 0.08]} />
-              <meshStandardMaterial color="#0b1020" metalness={0.25} roughness={0.65} />
+              <meshStandardMaterial color={ov.planterFeet} metalness={ov.metal.leg} roughness={ov.rough.metal} />
             </mesh>
             <mesh position={[-moduleLen / 2 + 0.12, 0.05, innerW / 2 - 0.06]}>
               <boxGeometry args={[0.08, 0.1, 0.08]} />
-              <meshStandardMaterial color="#0b1020" metalness={0.25} roughness={0.65} />
+              <meshStandardMaterial color={ov.planterFeet} metalness={ov.metal.leg} roughness={ov.rough.metal} />
             </mesh>
             <mesh position={[moduleLen / 2 - 0.12, 0.05, innerW / 2 - 0.06]}>
               <boxGeometry args={[0.08, 0.1, 0.08]} />
-              <meshStandardMaterial color="#0b1020" metalness={0.25} roughness={0.65} />
+              <meshStandardMaterial color={ov.planterFeet} metalness={ov.metal.leg} roughness={ov.rough.metal} />
             </mesh>
 
             {foliageCluster(0, 0, clusterSeed)}
@@ -126,19 +142,17 @@ function LowPlanterRow({
 function CityBackdrop() {
   return (
     <group position={[0, 0, -18]}>
-      {/* skyline glow */}
       <mesh position={[0, 4.2, 0]}>
         <planeGeometry args={[60, 18]} />
-        <meshStandardMaterial color="#050914" emissive="#0b1028" emissiveIntensity={0.9} />
+        <meshStandardMaterial color={ov.cityDeep} emissive={ov.cityDeepEmissive} emissiveIntensity={1.05} roughness={1} metalness={0} />
       </mesh>
 
-      {/* abstract “windows” */}
       <mesh position={[0, 2.8, 0.01]}>
         <planeGeometry args={[58, 14]} />
         <meshStandardMaterial
-          color="#070d1a"
-          emissive="#1d2b6b"
-          emissiveIntensity={0.55}
+          color={ov.cityWindows}
+          emissive={ov.cityWindowsEmissive}
+          emissiveIntensity={0.68}
           metalness={0.0}
           roughness={1.0}
         />
@@ -151,74 +165,82 @@ function DeskStation({
   position,
   rotationY = 0,
   busy = 0.0,
+  woodMap,
 }: {
   position: [number, number, number];
   rotationY?: number;
   busy?: number; // 0..1
+  woodMap: ReturnType<typeof createWoodLaminateTexture>;
 }) {
   const clutter = Math.max(0, Math.min(1, busy));
   return (
     <group position={position} rotation={[0, rotationY, 0]}>
-      {/* desk top */}
       <mesh position={[0, 0.62, 0]}>
         <boxGeometry args={[1.5, 0.08, 0.75]} />
-        <meshStandardMaterial color="#121a2f" metalness={0.15} roughness={0.65} />
+        <meshStandardMaterial
+          map={woodMap}
+          color={ov.woodDesk}
+          metalness={ov.metal.low}
+          roughness={ov.rough.wood}
+        />
       </mesh>
-      {/* legs */}
       <mesh position={[-0.65, 0.31, -0.28]}>
         <boxGeometry args={[0.06, 0.62, 0.06]} />
-        <meshStandardMaterial color="#0a1020" metalness={0.4} roughness={0.35} />
+        <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
       </mesh>
       <mesh position={[0.65, 0.31, -0.28]}>
         <boxGeometry args={[0.06, 0.62, 0.06]} />
-        <meshStandardMaterial color="#0a1020" metalness={0.4} roughness={0.35} />
+        <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
       </mesh>
       <mesh position={[-0.65, 0.31, 0.28]}>
         <boxGeometry args={[0.06, 0.62, 0.06]} />
-        <meshStandardMaterial color="#0a1020" metalness={0.4} roughness={0.35} />
+        <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
       </mesh>
       <mesh position={[0.65, 0.31, 0.28]}>
         <boxGeometry args={[0.06, 0.62, 0.06]} />
-        <meshStandardMaterial color="#0a1020" metalness={0.4} roughness={0.35} />
+        <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
       </mesh>
 
-      {/* monitor */}
       <mesh position={[0.35, 0.82, -0.1]}>
         <boxGeometry args={[0.44, 0.28, 0.04]} />
-        <meshStandardMaterial color="#0b1020" emissive="#38bdf8" emissiveIntensity={0.08 + 0.18 * clutter} />
+        <meshStandardMaterial
+          color={ov.ink}
+          emissive="#9ecae0"
+          emissiveIntensity={0.045 + 0.1 * clutter}
+          roughness={0.35}
+          metalness={0.08}
+        />
       </mesh>
       <mesh position={[0.35, 0.7, -0.1]}>
         <boxGeometry args={[0.12, 0.14, 0.08]} />
-        <meshStandardMaterial color="#0a1020" metalness={0.4} roughness={0.35} />
+        <meshStandardMaterial color={ov.ink} metalness={ov.metal.leg} roughness={ov.rough.metal} />
       </mesh>
 
-      {/* chair */}
       <mesh position={[-0.5, 0.42, 0.18]}>
         <boxGeometry args={[0.34, 0.06, 0.32]} />
-        <meshStandardMaterial color="#0a1020" metalness={0.15} roughness={0.75} />
+        <meshStandardMaterial color={ov.fabricDark} metalness={ov.metal.low} roughness={ov.rough.fabric} />
       </mesh>
       <mesh position={[-0.5, 0.55, 0.03]}>
         <boxGeometry args={[0.34, 0.32, 0.06]} />
-        <meshStandardMaterial color="#0a1020" metalness={0.15} roughness={0.75} />
+        <meshStandardMaterial color={ov.fabricDark} metalness={ov.metal.low} roughness={ov.rough.fabric} />
       </mesh>
 
-      {/* clutter: papers, mug, tablet */}
       {clutter > 0.2 ? (
         <mesh position={[-0.15, 0.68, 0.14]} rotation={[0, 0.2, 0.06]}>
           <boxGeometry args={[0.28, 0.01, 0.2]} />
-          <meshStandardMaterial color="#e2e8f0" roughness={1} metalness={0} />
+          <meshStandardMaterial color="#f1f5f9" roughness={0.95} metalness={0} />
         </mesh>
       ) : null}
       {clutter > 0.45 ? (
         <mesh position={[-0.38, 0.69, -0.12]}>
           <cylinderGeometry args={[0.06, 0.06, 0.11, 14]} />
-          <meshStandardMaterial color="#6d28d9" emissive="#6d28d9" emissiveIntensity={0.06} roughness={0.5} />
+          <meshStandardMaterial color={ov.accentViolet} emissive={ov.accentViolet} emissiveIntensity={0.04} roughness={0.55} />
         </mesh>
       ) : null}
       {clutter > 0.65 ? (
         <mesh position={[0.05, 0.685, -0.22]} rotation={[-0.12, -0.35, 0]}>
           <boxGeometry args={[0.22, 0.01, 0.16]} />
-          <meshStandardMaterial color="#94a3b8" roughness={0.95} metalness={0.05} />
+          <meshStandardMaterial color="#a8b4c8" roughness={0.92} metalness={0.04} />
         </mesh>
       ) : null}
     </group>
@@ -236,57 +258,270 @@ function Plant({
     <group position={position} scale={size}>
       <mesh position={[0, 0.26, 0]}>
         <cylinderGeometry args={[0.22, 0.26, 0.34, 16]} />
-        <meshStandardMaterial color="#0b1326" metalness={0.2} roughness={0.8} />
+        <meshStandardMaterial color={ov.woodDeskDark} metalness={ov.metal.frame} roughness={ov.rough.wood} />
       </mesh>
       <mesh position={[0, 0.55, 0]}>
         <sphereGeometry args={[0.33, 14, 14]} />
-        <meshStandardMaterial color="#22c55e" roughness={0.85} metalness={0.05} />
+        <meshStandardMaterial color="#2d6a4f" roughness={0.88} metalness={0.02} />
       </mesh>
       <mesh position={[0.12, 0.7, -0.08]}>
         <sphereGeometry args={[0.22, 14, 14]} />
-        <meshStandardMaterial color="#16a34a" roughness={0.85} metalness={0.05} />
+        <meshStandardMaterial color="#1b5e3a" roughness={0.9} metalness={0.02} />
       </mesh>
       <mesh position={[-0.14, 0.72, 0.1]}>
         <sphereGeometry args={[0.2, 14, 14]} />
-        <meshStandardMaterial color="#15803d" roughness={0.85} metalness={0.05} />
+        <meshStandardMaterial color="#164832" roughness={0.9} metalness={0.02} />
       </mesh>
+    </group>
+  );
+}
+
+/** Compact task chair — seat clears table apron; back sits behind seat, not through desk */
+function GlassMeetingChair({ position, rotationY }: { position: [number, number, number]; rotationY: number }) {
+  return (
+    <group position={position} rotation={[0, rotationY, 0]}>
+      <mesh position={[0, 0.06, 0.02]}>
+        <cylinderGeometry args={[0.18, 0.2, 0.04, 14]} />
+        <meshStandardMaterial color="#c8d0e0" metalness={0.45} roughness={0.38} />
+      </mesh>
+      <mesh position={[0, 0.21, 0.02]}>
+        <boxGeometry args={[0.4, 0.05, 0.38]} />
+        <meshStandardMaterial color="#1a2230" roughness={0.88} metalness={0.06} />
+      </mesh>
+      <mesh position={[0, 0.4, -0.2]}>
+        <boxGeometry args={[0.38, 0.38, 0.08]} />
+        <meshStandardMaterial color="#222938" roughness={0.9} metalness={0.04} />
+      </mesh>
+      <mesh position={[0, -0.01, 0.02]}>
+        <cylinderGeometry args={[0.022, 0.022, 0.14, 8]} />
+        <meshStandardMaterial color="#8b95a8" metalness={0.55} roughness={0.42} />
+      </mesh>
+    </group>
+  );
+}
+
+/** Light real-glass read: thin + low opacity so it never reads as a solid wall */
+const focusGlassMatProps = {
+  color: "#eef6ff",
+  metalness: 0.06,
+  roughness: 0.08,
+  transparent: true,
+  opacity: 0.16,
+  depthWrite: false,
+} as const;
+
+const FOCUS_BAY_COUNT = 3;
+const FOCUS_SCALE = 1.25;
+
+function FocusBayMeetingTable({
+  woodMap,
+  xC,
+  cz,
+  tableW,
+  tableD,
+  floorY,
+}: {
+  woodMap: ReturnType<typeof createWoodLaminateTexture>;
+  xC: number;
+  cz: number;
+  tableW: number;
+  tableD: number;
+  floorY: number;
+}) {
+  const legH = 0.58;
+  const topT = 0.07;
+  const topY = floorY + legH + topT / 2;
+  const legY = floorY + legH / 2;
+  const lx = Math.max(0.22, tableW / 2 - 0.2);
+  const lz = Math.max(0.18, tableD / 2 - 0.16);
+  const leg: [number, number, number] = [0.07, legH, 0.07];
+  const corners: [number, number][] = [
+    [-lx, -lz],
+    [lx, -lz],
+    [-lx, lz],
+    [lx, lz],
+  ];
+  return (
+    <group>
+      {corners.map(([ox, oz], k) => (
+        <mesh key={k} position={[xC + ox, legY, cz + oz]}>
+          <boxGeometry args={leg} />
+          <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
+        </mesh>
+      ))}
+      <mesh position={[xC, topY, cz]}>
+        <boxGeometry args={[tableW, topT, tableD]} />
+        <meshStandardMaterial map={woodMap} color={ov.woodDesk} roughness={ov.rough.wood} metalness={ov.metal.frame} />
+      </mesh>
+    </group>
+  );
+}
+
+/**
+ * Three built-in bays **along the side wall (Z)**, not along the window.
+ * Flush to building X face + window strip; hall opens on +X (left) / −X (right).
+ */
+function FocusRoomBayRow({ woodMap, align }: { woodMap: ReturnType<typeof createWoodLaminateTexture>; align: "negX" | "posX" }) {
+  const floorY = -0.8;
+  const h = 2.46;
+  const cy = floorY + h / 2;
+  const shellT = 0.06;
+  const glassT = 0.022;
+  const isNeg = align === "negX";
+
+  const rx = 3.25 * FOCUS_SCALE;
+  const rzBay = 2.78 * FOCUS_SCALE;
+  const z0 = -13.5 + shellT;
+  const z3 = z0 + FOCUS_BAY_COUNT * rzBay;
+  const zSpan = z3 - z0;
+  const zCAll = (z0 + z3) / 2;
+
+  const xIn = isNeg ? -19.7 + shellT : 19.7 - shellT - rx;
+  const xOut = isNeg ? xIn + rx : 19.7 - shellT;
+  const xC = (xIn + xOut) / 2;
+
+  const ZB = Array.from({ length: FOCUS_BAY_COUNT + 1 }, (_, j) => z0 + j * rzBay);
+
+  const doorW = 0.64 * FOCUS_SCALE;
+  const doorPad = 0.09;
+
+  const hallGlassX = isNeg ? xOut - glassT / 2 : xIn + glassT / 2;
+  const ceilingY = floorY + h - 0.04;
+
+  return (
+    <group>
+      <mesh position={[xC, cy, z0 - shellT / 2]}>
+        <boxGeometry args={[rx - 0.04, h, shellT]} />
+        <meshStandardMaterial map={woodMap} color={ov.woodDesk} roughness={ov.rough.wood} metalness={ov.metal.frame} />
+      </mesh>
+
+      {isNeg ? (
+        <mesh position={[-19.7 + shellT / 2, cy, zCAll]}>
+          <boxGeometry args={[shellT, h, zSpan]} />
+          <meshStandardMaterial map={woodMap} color={ov.woodDesk} roughness={ov.rough.wood} metalness={ov.metal.frame} />
+        </mesh>
+      ) : (
+        <mesh position={[19.7 - shellT / 2, cy, zCAll]}>
+          <boxGeometry args={[shellT, h, zSpan]} />
+          <meshStandardMaterial map={woodMap} color={ov.woodDesk} roughness={ov.rough.wood} metalness={ov.metal.frame} />
+        </mesh>
+      )}
+
+      {[1, 2].map((j) => (
+        <mesh key={`part-${align}-z-${j}`} position={[xC, cy, ZB[j]]}>
+          <boxGeometry args={[rx - 0.02, h, glassT]} />
+          <meshStandardMaterial {...focusGlassMatProps} />
+        </mesh>
+      ))}
+
+      {[0, 1, 2].map((i) => {
+        const zL = ZB[i];
+        const zR = ZB[i + 1];
+        const cz = (zL + zR) / 2;
+        const rz = zR - zL;
+        const panelAlongZ = (rz - doorW - 2 * doorPad) / 2;
+        const panelAlongX = (rx - doorW - 2 * doorPad) / 2;
+        const tableW = Math.min(rx - 0.68, 2.48);
+        const tableD = Math.min(rz - 0.62, 1.48);
+        const halfW = tableW / 2;
+        const halfD = tableD / 2;
+        const chairPad = 0.3;
+        const sx = halfW + chairPad;
+        const sz = halfD + chairPad;
+        const frontGlassZ = zR - glassT / 2;
+        return (
+          <group key={`bay-${align}-${i}`}>
+            <mesh position={[xC, floorY + 0.026, cz]} rotation={[-Math.PI / 2, 0, 0]}>
+              <planeGeometry args={[rx - 0.08, rz - 0.08]} />
+              <meshStandardMaterial color={ov.focusRoomCarpet} roughness={0.94} metalness={0.02} />
+            </mesh>
+
+            <mesh position={[xC, ceilingY, cz]}>
+              <boxGeometry args={[rx - 0.06, 0.08, rz - 0.06]} />
+              <meshStandardMaterial color="#e8edf5" roughness={0.75} metalness={0.06} />
+            </mesh>
+
+            <mesh position={[xC, floorY + 1.14, zL + 0.12]}>
+              <boxGeometry args={[Math.min(rx - 0.25, 1.15), 0.55, 0.045]} />
+              <meshStandardMaterial color="#0a0c12" roughness={0.35} metalness={0.15} emissive="#1e293b" emissiveIntensity={0.06} />
+            </mesh>
+
+            <mesh position={[hallGlassX, cy, zL + doorPad + panelAlongZ / 2]}>
+              <boxGeometry args={[glassT, h, panelAlongZ]} />
+              <meshStandardMaterial {...focusGlassMatProps} />
+            </mesh>
+            <mesh position={[hallGlassX, cy, zR - doorPad - panelAlongZ / 2]}>
+              <boxGeometry args={[glassT, h, panelAlongZ]} />
+              <meshStandardMaterial {...focusGlassMatProps} />
+            </mesh>
+
+            <mesh position={[xIn + doorPad + panelAlongX / 2, cy, frontGlassZ]}>
+              <boxGeometry args={[panelAlongX, h, glassT]} />
+              <meshStandardMaterial {...focusGlassMatProps} />
+            </mesh>
+            <mesh position={[xOut - doorPad - panelAlongX / 2, cy, frontGlassZ]}>
+              <boxGeometry args={[panelAlongX, h, glassT]} />
+              <meshStandardMaterial {...focusGlassMatProps} />
+            </mesh>
+
+            <FocusBayMeetingTable woodMap={woodMap} xC={xC} cz={cz} tableW={tableW} tableD={tableD} floorY={floorY} />
+
+            <GlassMeetingChair
+              position={[isNeg ? xC - sx : xC + sx, floorY, cz - sz]}
+              rotationY={isNeg ? Math.PI / 2 : -Math.PI / 2}
+            />
+            <GlassMeetingChair
+              position={[isNeg ? xC - sx : xC + sx, floorY, cz + sz]}
+              rotationY={isNeg ? Math.PI / 2 : -Math.PI / 2}
+            />
+            <GlassMeetingChair
+              position={[isNeg ? xC + sx : xC - sx, floorY, cz - sz]}
+              rotationY={isNeg ? -Math.PI / 2 : Math.PI / 2}
+            />
+            <GlassMeetingChair
+              position={[isNeg ? xC + sx : xC - sx, floorY, cz + sz]}
+              rotationY={isNeg ? -Math.PI / 2 : Math.PI / 2}
+            />
+          </group>
+        );
+      })}
     </group>
   );
 }
 
 function Lounge({
   position,
+  woodMap,
 }: {
   position: [number, number, number];
+  woodMap: ReturnType<typeof createWoodLaminateTexture>;
 }) {
   return (
     <group position={position}>
-      {/* sofa */}
       <mesh position={[0, 0.42, 0]}>
         <boxGeometry args={[2.2, 0.32, 0.9]} />
-        <meshStandardMaterial color="#1e293b" roughness={0.7} metalness={0.05} />
+        <meshStandardMaterial color={ov.fabricSofa} roughness={ov.rough.fabric} metalness={ov.metal.low} />
       </mesh>
       <mesh position={[0, 0.64, -0.34]}>
         <boxGeometry args={[2.2, 0.46, 0.18]} />
-        <meshStandardMaterial color="#0f172a" roughness={0.8} metalness={0.05} />
+        <meshStandardMaterial color={ov.fabricDark} roughness={0.85} metalness={ov.metal.low} />
       </mesh>
       <mesh position={[0, 0.64, 0.38]}>
         <boxGeometry args={[2.2, 0.22, 0.12]} />
-        <meshStandardMaterial color="#0f172a" roughness={0.8} metalness={0.05} />
+        <meshStandardMaterial color={ov.fabricDark} roughness={0.85} metalness={ov.metal.low} />
       </mesh>
 
-      {/* coffee table */}
       <mesh position={[0.0, 0.26, 1.05]}>
         <boxGeometry args={[1.2, 0.06, 0.62]} />
-        <meshStandardMaterial color="#121a2f" roughness={0.65} metalness={0.15} />
+        <meshStandardMaterial map={woodMap} color={ov.woodDesk} roughness={ov.rough.wood} metalness={ov.metal.frame} />
       </mesh>
       <mesh position={[-0.5, 0.13, 1.05]}>
         <boxGeometry args={[0.06, 0.26, 0.06]} />
-        <meshStandardMaterial color="#0a1020" roughness={0.45} metalness={0.35} />
+        <meshStandardMaterial color={ov.metalLeg} roughness={ov.rough.metal} metalness={ov.metal.leg} />
       </mesh>
       <mesh position={[0.5, 0.13, 1.05]}>
         <boxGeometry args={[0.06, 0.26, 0.06]} />
-        <meshStandardMaterial color="#0a1020" roughness={0.45} metalness={0.35} />
+        <meshStandardMaterial color={ov.metalLeg} roughness={ov.rough.metal} metalness={ov.metal.leg} />
       </mesh>
     </group>
   );
@@ -297,16 +532,18 @@ function AreaRug({
   size,
   rotationY = 0,
   fabricMap,
+  tint = ov.rugTintA,
 }: {
   position: [number, number, number];
   size: [number, number];
   rotationY?: number;
   fabricMap: ReturnType<typeof createFabricNoiseTexture>;
+  tint?: string;
 }) {
   return (
     <mesh rotation={[-Math.PI / 2, 0, rotationY]} position={position}>
       <planeGeometry args={size} />
-      <meshStandardMaterial map={fabricMap} color="#111827" roughness={0.95} metalness={0.0} />
+      <meshStandardMaterial map={fabricMap} color={tint} roughness={ov.rough.matte} metalness={0.0} />
     </mesh>
   );
 }
@@ -316,15 +553,21 @@ function WaterCooler({ position }: { position: [number, number, number] }) {
     <group position={position}>
       <mesh position={[0, 0.55, 0]}>
         <boxGeometry args={[0.42, 1.1, 0.42]} />
-        <meshStandardMaterial color="#0f172a" metalness={0.25} roughness={0.55} />
+        <meshStandardMaterial color={ov.fabricDark} metalness={0.22} roughness={0.58} />
       </mesh>
       <mesh position={[0, 0.62, 0.21]}>
         <boxGeometry args={[0.34, 0.55, 0.02]} />
-        <meshStandardMaterial color="#0b1020" emissive="#38bdf8" emissiveIntensity={0.12} roughness={0.35} metalness={0.1} />
+        <meshStandardMaterial
+          color={ov.ink}
+          emissive="#8ec5d9"
+          emissiveIntensity={0.06}
+          roughness={0.4}
+          metalness={0.12}
+        />
       </mesh>
       <mesh position={[0, 0.05, 0]}>
         <cylinderGeometry args={[0.22, 0.26, 0.1, 18]} />
-        <meshStandardMaterial color="#0b1020" metalness={0.35} roughness={0.45} />
+        <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
       </mesh>
     </group>
   );
@@ -335,24 +578,24 @@ function Bookshelf({ position, rotationY = 0 }: { position: [number, number, num
     <group position={position} rotation={[0, rotationY, 0]}>
       <mesh position={[0, 1.05, 0]}>
         <boxGeometry args={[1.1, 2.1, 0.35]} />
-        <meshStandardMaterial color="#111827" metalness={0.12} roughness={0.85} />
+        <meshStandardMaterial color={ov.woodDeskDark} metalness={ov.metal.frame} roughness={ov.rough.wood} />
       </mesh>
       {[-0.75, -0.25, 0.25, 0.75].map((yOff, i) => (
         <mesh key={i} position={[0, yOff, 0.18]}>
           <boxGeometry args={[0.95, 0.04, 0.28]} />
-          <meshStandardMaterial color="#0b1020" metalness={0.2} roughness={0.75} />
+          <meshStandardMaterial color={ov.ink} metalness={ov.metal.frame} roughness={0.8} />
         </mesh>
       ))}
-      {/* a few “books” */}
       {Array.from({ length: 18 }).map((_, i) => {
         const x = -0.35 + (i % 6) * 0.14;
         const y = 0.35 + Math.floor(i / 6) * 0.22;
         const h = 0.16 + (i % 3) * 0.02;
-        const c = i % 4 === 0 ? "#7c3aed" : i % 4 === 1 ? "#38bdf8" : i % 4 === 2 ? "#f59e0b" : "#e2e8f0";
+        const c =
+          i % 4 === 0 ? ov.accentViolet : i % 4 === 1 ? ov.accentCyan : i % 4 === 2 ? ov.accentAmber : "#d8dee9";
         return (
           <mesh key={`b-${i}`} position={[x, y, 0.12]}>
             <boxGeometry args={[0.08, h, 0.18]} />
-            <meshStandardMaterial color={c} roughness={0.75} metalness={0.05} />
+            <meshStandardMaterial color={c} roughness={0.82} metalness={0.04} />
           </mesh>
         );
       })}
@@ -365,15 +608,15 @@ function Whiteboard({ position, rotationY = 0 }: { position: [number, number, nu
     <group position={position} rotation={[0, rotationY, 0]}>
       <mesh position={[0, 1.35, 0.02]}>
         <boxGeometry args={[2.4, 1.35, 0.06]} />
-        <meshStandardMaterial color="#f8fafc" roughness={0.85} metalness={0.0} />
+        <meshStandardMaterial color="#f4f7fb" roughness={0.55} metalness={0.02} />
       </mesh>
       <mesh position={[0, 1.35, 0]}>
         <boxGeometry args={[2.55, 1.5, 0.04]} />
-        <meshStandardMaterial color="#0b1020" metalness={0.15} roughness={0.75} />
+        <meshStandardMaterial color={ov.ink} metalness={ov.metal.frame} roughness={0.78} />
       </mesh>
       <mesh position={[-0.9, 1.05, 0.04]}>
         <boxGeometry args={[0.02, 0.02, 0.02]} />
-        <meshStandardMaterial color="#ef4444" emissive="#ef4444" emissiveIntensity={0.12} />
+        <meshStandardMaterial color="#c45c52" emissive="#b91c1c" emissiveIntensity={0.06} />
       </mesh>
     </group>
   );
@@ -384,11 +627,11 @@ function TrashBin({ position }: { position: [number, number, number] }) {
     <group position={position}>
       <mesh position={[0, 0.28, 0]}>
         <cylinderGeometry args={[0.18, 0.2, 0.56, 18]} />
-        <meshStandardMaterial color="#111827" metalness={0.25} roughness={0.55} />
+        <meshStandardMaterial color={ov.metalLeg} metalness={0.28} roughness={0.52} />
       </mesh>
       <mesh position={[0, 0.58, 0]}>
         <cylinderGeometry args={[0.2, 0.2, 0.06, 18]} />
-        <meshStandardMaterial color="#0b1020" metalness={0.35} roughness={0.45} />
+        <meshStandardMaterial color={ov.ink} metalness={0.32} roughness={0.48} />
       </mesh>
     </group>
   );
@@ -399,15 +642,21 @@ function CoffeeStation({ position, rotationY = 0 }: { position: [number, number,
     <group position={position} rotation={[0, rotationY, 0]}>
       <mesh position={[0, 0.45, 0]}>
         <boxGeometry args={[0.95, 0.9, 0.55]} />
-        <meshStandardMaterial color="#111827" metalness={0.2} roughness={0.7} />
+        <meshStandardMaterial color={ov.fabricDark} metalness={0.12} roughness={0.72} />
       </mesh>
       <mesh position={[0.18, 0.75, 0.28]}>
         <boxGeometry args={[0.34, 0.22, 0.06]} />
-        <meshStandardMaterial color="#0b1020" emissive="#f59e0b" emissiveIntensity={0.08} roughness={0.45} metalness={0.15} />
+        <meshStandardMaterial
+          color={ov.ink}
+          emissive={ov.accentAmber}
+          emissiveIntensity={0.045}
+          roughness={0.48}
+          metalness={0.12}
+        />
       </mesh>
       <mesh position={[-0.22, 0.62, 0.28]}>
         <cylinderGeometry args={[0.05, 0.05, 0.22, 12]} />
-        <meshStandardMaterial color="#cbd5e1" metalness={0.35} roughness={0.35} />
+        <meshStandardMaterial color="#c5cedd" metalness={0.4} roughness={0.38} />
       </mesh>
     </group>
   );
@@ -422,85 +671,215 @@ function WallPoster({
   rotationY: number;
   accent: string;
 }) {
+  const frameT = 0.055;
+  const outerW = 1.72;
+  const outerH = 1.12;
+  const matZ = 0.038;
+  const artZ = 0.056;
   return (
     <group position={position} rotation={[0, rotationY, 0]}>
-      <mesh position={[0, 0, 0.02]}>
-        <boxGeometry args={[1.6, 1.0, 0.04]} />
-        <meshStandardMaterial color="#0b1020" roughness={0.85} metalness={0.05} />
+      {/* outer frame */}
+      <mesh position={[0, 0, 0.018]}>
+        <boxGeometry args={[outerW, outerH, 0.05]} />
+        <meshStandardMaterial color={ov.woodDeskDark} roughness={ov.rough.wood} metalness={ov.metal.frame} />
       </mesh>
-      <mesh position={[0, 0, 0.045]}>
-        <boxGeometry args={[1.45, 0.85, 0.02]} />
-        <meshStandardMaterial color="#0f172a" emissive={accent} emissiveIntensity={0.04} roughness={0.92} metalness={0.0} />
+      {/* mat */}
+      <mesh position={[0, 0, matZ]}>
+        <boxGeometry args={[1.52, 0.92, 0.012]} />
+        <meshStandardMaterial color="#ebe6dc" roughness={0.92} metalness={0.0} />
+      </mesh>
+      {/* art plane */}
+      <mesh position={[0, 0, artZ]}>
+        <boxGeometry args={[1.28, 0.68, 0.014]} />
+        <meshStandardMaterial color={ov.ink} emissive={accent} emissiveIntensity={0.055} roughness={0.9} metalness={0.0} />
+      </mesh>
+      {/* thin frame lip */}
+      <mesh position={[0, outerH / 2 - frameT / 2, artZ + 0.01]}>
+        <boxGeometry args={[outerW + 0.02, frameT, 0.02]} />
+        <meshStandardMaterial color={ov.ink} roughness={0.75} metalness={0.08} />
+      </mesh>
+      <mesh position={[0, -outerH / 2 + frameT / 2, artZ + 0.01]}>
+        <boxGeometry args={[outerW + 0.02, frameT, 0.02]} />
+        <meshStandardMaterial color={ov.ink} roughness={0.75} metalness={0.08} />
+      </mesh>
+      <mesh position={[outerW / 2 - frameT / 2, 0, artZ + 0.01]}>
+        <boxGeometry args={[frameT, outerH, 0.02]} />
+        <meshStandardMaterial color={ov.ink} roughness={0.75} metalness={0.08} />
+      </mesh>
+      <mesh position={[-outerW / 2 + frameT / 2, 0, artZ + 0.01]}>
+        <boxGeometry args={[frameT, outerH, 0.02]} />
+        <meshStandardMaterial color={ov.ink} roughness={0.75} metalness={0.08} />
+      </mesh>
+    </group>
+  );
+}
+
+/** Perimeter trim where walls meet floor — sells “finished interior” */
+function FloorTrim() {
+  const h = 0.11;
+  const y = -0.8 + h / 2;
+  const t = 0.07;
+  const spanZ = 25.4;
+  const spanX = 39.0;
+  return (
+    <group>
+      <mesh position={[-19.66, y, -2]}>
+        <boxGeometry args={[t, h, spanZ]} />
+        <meshStandardMaterial color={ov.trim} roughness={0.78} metalness={0.04} />
+      </mesh>
+      <mesh position={[19.66, y, -2]}>
+        <boxGeometry args={[t, h, spanZ]} />
+        <meshStandardMaterial color={ov.trim} roughness={0.78} metalness={0.04} />
+      </mesh>
+      <mesh position={[0, y, -13.44]}>
+        <boxGeometry args={[spanX, h, t]} />
+        <meshStandardMaterial color={ov.trim} roughness={0.78} metalness={0.04} />
+      </mesh>
+      <mesh position={[0, y, 9.84]}>
+        <boxGeometry args={[spanX, h, t]} />
+        <meshStandardMaterial color={ov.trim} roughness={0.78} metalness={0.04} />
+      </mesh>
+    </group>
+  );
+}
+
+/** Mullions in front of glass — breaks “single blue slab” read */
+function WindowMullions() {
+  const xs = [-12, -6, 0, 6, 12];
+  return (
+    <group position={[0, 1.12, -13.44]}>
+      {xs.map((x) => (
+        <mesh key={x} position={[x, 0, 0]}>
+          <boxGeometry args={[0.08, 2.75, 0.07]} />
+          <meshStandardMaterial color={ov.ink} metalness={ov.metal.frame} roughness={0.75} />
+        </mesh>
+      ))}
+      <mesh position={[0, 1.38, 0]}>
+        <boxGeometry args={[31.5, 0.07, 0.07]} />
+        <meshStandardMaterial color={ov.ink} metalness={ov.metal.frame} roughness={0.75} />
+      </mesh>
+      <mesh position={[0, -1.38, 0]}>
+        <boxGeometry args={[31.5, 0.07, 0.07]} />
+        <meshStandardMaterial color={ov.ink} metalness={ov.metal.frame} roughness={0.75} />
       </mesh>
     </group>
   );
 }
 
 export function TrainingHubLevel() {
-  const wallTex = useMemo(() => createConcreteTexture({ base: "#6b7280", seed: 1201 }), []);
-  const floorTex = useMemo(() => createCarpetTexture({ base: "#151a2a", accent: "#272d44", seed: 443 }), []);
+  const wallTex = useMemo(() => createConcreteTexture({ base: ov.wallTexBase, seed: 1201 }), []);
+  const floorTex = useMemo(
+    () =>
+      createParquetTexture({
+        seed: 443,
+        base: ov.parquetBase,
+        joint: ov.parquetJoint,
+        repeatU: ov.parquetRepeat[0],
+        repeatV: ov.parquetRepeat[1],
+      }),
+    [],
+  );
   const soilTex = useMemo(() => createSoilTexture({ seed: 9003 }), []);
-  const rugTexA = useMemo(() => createFabricNoiseTexture({ base: "#1b2236", seed: 501 }), []);
-  const rugTexB = useMemo(() => createFabricNoiseTexture({ base: "#1a2234", seed: 502 }), []);
+  const rugTexA = useMemo(() => createFabricNoiseTexture({ base: "#cfd6e4", seed: 501 }), []);
+  const rugTexB = useMemo(() => createFabricNoiseTexture({ base: "#c5ccda", seed: 502 }), []);
+  const woodTex = useMemo(
+    () =>
+      createWoodLaminateTexture({
+        seed: 3101,
+        base: ov.woodDesk,
+        grain: ov.woodDeskDark,
+      }),
+    [],
+  );
+  const ceilingTex = useMemo(() => createCeilingTileTexture({ seed: 6201, base: ov.ceiling, line: ov.ceilingGridEmissive }), []);
 
   return (
     <>
-      <color attach="background" args={["#050914"]} />
-      <fog attach="fog" args={["#050914", 7, 34]} />
+      <color attach="background" args={[ov.background]} />
+      <fog attach="fog" args={[ov.fog, ov.fogNear, ov.fogFar]} />
 
-      {/* lighting: readable + “AAA-ish” accent */}
-      <ambientLight intensity={0.22} />
-      <directionalLight position={[10, 12, 5]} intensity={0.65} color="#dbeafe" />
+      <ambientLight intensity={ov.ambient.intensity} color={ov.ambient.color} />
+      <hemisphereLight args={[ov.hemisphere.sky, ov.hemisphere.ground, ov.hemisphere.intensity]} position={[0, 2.4, 0]} />
+      <directionalLight
+        position={[...ov.fillDir.pos]}
+        intensity={ov.fillDir.intensity}
+        color={ov.fillDir.color}
+        castShadow={false}
+      />
 
-      {/* drei RectAreaLight isn't available in this setup: use accent point lights */}
-      <pointLight position={[-14.0, 2.2, 5.2]} intensity={2.2} color="#7c3aed" distance={7} />
-      <pointLight position={[0.0, 2.3, 2.9]} intensity={1.8} color="#38bdf8" distance={7} />
-      <pointLight position={[2.6, 2.2, -8.6]} intensity={1.8} color="#f59e0b" distance={7} />
+      {ov.zonePoints.map((L, i) => (
+        <pointLight key={i} position={[...L.pos]} intensity={L.intensity} color={L.color} distance={L.distance} decay={2} />
+      ))}
 
-      {/* soft daylight from windows */}
-      <directionalLight position={[0, 8, -20]} intensity={0.55} color="#e2e8f0" />
+      <directionalLight
+        position={[...ov.windowKey.pos]}
+        intensity={ov.windowKey.intensity}
+        color={ov.windowKey.color}
+        castShadow={false}
+      />
 
-      {/* ceiling panels (soft office light) */}
-      <CeilingLight position={[-10, 3.75, -2]} size={[10, 6]} intensity={0.75} />
-      <CeilingLight position={[10, 3.75, -2]} size={[10, 6]} intensity={0.75} />
-      <CeilingLight position={[0, 3.75, -9]} size={[12, 6]} intensity={0.65} />
+      {ov.ceilingPanels.map((p, i) => (
+        <CeilingLight key={i} position={[...p.pos]} size={[...p.size]} intensity={p.intensity} />
+      ))}
 
-      {/* floor */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.8, 0]} receiveShadow>
         <planeGeometry args={[54, 54]} />
-        <meshStandardMaterial color="#0b1220" map={floorTex} metalness={0.02} roughness={0.98} />
+        <meshStandardMaterial
+          color={ov.floorTint}
+          map={floorTex}
+          metalness={0.04}
+          roughness={ov.floorRoughness}
+        />
       </mesh>
 
-      {/* OFFICE SHELL: walls + windows */}
-      <mesh position={[0, 1.0, 10.2]}>
+      <FloorTrim />
+
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 3.06, -2]}>
+        <planeGeometry args={[40, 26]} />
+        <meshStandardMaterial
+          map={ceilingTex}
+          color={ov.ceiling}
+          roughness={ov.rough.matte}
+          metalness={ov.metal.low}
+          emissive={ov.ceilingGridEmissive}
+          emissiveIntensity={0.06}
+        />
+      </mesh>
+
+      {/* South shell: keep WELL behind follow-cam (player z≤9.5 + behind≤~7.6 → cam z≤~17.1) or it fills the whole frame */}
+      <mesh position={[0, 1.0, 18.4]}>
         <boxGeometry args={[40, 4.2, 0.6]} />
-        <meshStandardMaterial color="#6b7280" map={wallTex} metalness={0.05} roughness={0.92} />
+        <meshStandardMaterial color={ov.wallPaint} map={wallTex} metalness={ov.metal.low} roughness={ov.rough.wall} />
       </mesh>
       <mesh position={[-20.0, 1.0, -2.0]}>
         <boxGeometry args={[0.6, 4.2, 26]} />
-        <meshStandardMaterial color="#6b7280" map={wallTex} metalness={0.05} roughness={0.92} />
+        <meshStandardMaterial color={ov.wallPaint} map={wallTex} metalness={ov.metal.low} roughness={ov.rough.wall} />
       </mesh>
       <mesh position={[20.0, 1.0, -2.0]}>
         <boxGeometry args={[0.6, 4.2, 26]} />
-        <meshStandardMaterial color="#6b7280" map={wallTex} metalness={0.05} roughness={0.92} />
+        <meshStandardMaterial color={ov.wallPaint} map={wallTex} metalness={ov.metal.low} roughness={ov.rough.wall} />
       </mesh>
 
-      {/* panoramic windows wall */}
       <mesh position={[0, 1.0, -13.8]}>
         <boxGeometry args={[40, 4.2, 0.6]} />
-        <meshStandardMaterial color="#101a2e" metalness={0.12} roughness={0.85} />
+        <meshStandardMaterial color={ov.windowWallOuter} metalness={ov.metal.frame} roughness={ov.rough.wall} />
       </mesh>
       <mesh position={[0, 1.2, -13.49]}>
         <boxGeometry args={[32, 3.0, 0.06]} />
-        <meshStandardMaterial color="#0b1020" emissive="#0b1020" emissiveIntensity={0.25} metalness={0.2} roughness={0.3} />
+        <meshStandardMaterial
+          color={ov.glassTint}
+          emissive={ov.glassEmissive}
+          emissiveIntensity={0.32}
+          metalness={0.12}
+          roughness={0.28}
+        />
       </mesh>
+      <WindowMullions />
       <CityBackdrop />
 
-      {/* extra decor */}
-      {/* rugs: keep away from planter “doorway” at z≈2.2 */}
-      <AreaRug position={[0, -0.795, -0.6]} size={[9, 5.5]} rotationY={0} fabricMap={rugTexA} />
-      <AreaRug position={[-12, -0.795, 5.0]} size={[7.5, 4.8]} rotationY={0.04} fabricMap={rugTexB} />
-      <AreaRug position={[12, -0.795, 5.0]} size={[7.5, 4.8]} rotationY={-0.04} fabricMap={rugTexB} />
+      <AreaRug position={[0, -0.795, -0.6]} size={[9, 5.5]} rotationY={0} fabricMap={rugTexA} tint={ov.rugTintA} />
+      <AreaRug position={[-12, -0.795, 5.0]} size={[7.5, 4.8]} rotationY={0.04} fabricMap={rugTexB} tint={ov.rugTintB} />
+      <AreaRug position={[12, -0.795, 5.0]} size={[7.5, 4.8]} rotationY={-0.04} fabricMap={rugTexB} tint={ov.rugTintB} />
 
       <WaterCooler position={[-2.2, -0.8, 8.6]} />
       <WaterCooler position={[2.2, -0.8, 8.6]} />
@@ -509,9 +888,9 @@ export function TrainingHubLevel() {
       <Bookshelf position={[-19.525, -0.8, 2.0]} rotationY={Math.PI / 2} />
       <Bookshelf position={[19.525, -0.8, 2.0]} rotationY={-Math.PI / 2} />
 
-      {/* boards: slightly inset so they don't float off the wall */}
-      <Whiteboard position={[-19.62, -0.8, -6.0]} rotationY={0} />
-      <Whiteboard position={[19.62, -0.8, -6.0]} rotationY={Math.PI} />
+      {/* boards: YZ wall → rotate so thin axis is ±X, face opens into room */}
+      <Whiteboard position={[-19.62, -0.8, -6.0]} rotationY={Math.PI / 2} />
+      <Whiteboard position={[19.62, -0.8, -6.0]} rotationY={-Math.PI / 2} />
 
       <TrashBin position={[-1.1, -0.8, 8.1]} />
       <TrashBin position={[1.1, -0.8, 8.1]} />
@@ -520,10 +899,9 @@ export function TrainingHubLevel() {
       <CoffeeStation position={[-1.2, -0.8, -10.2]} rotationY={Math.PI * 0.15} />
       <CoffeeStation position={[1.4, -0.8, -10.0]} rotationY={-Math.PI * 0.12} />
 
-      {/* posters on side walls */}
-      <WallPoster position={[-19.62, 1.55, 5.6]} rotationY={0} accent="#7c3aed" />
-      <WallPoster position={[-19.62, 1.55, -1.2]} rotationY={0} accent="#38bdf8" />
-      <WallPoster position={[19.62, 1.55, 2.4]} rotationY={Math.PI} accent="#f59e0b" />
+      <WallPoster position={[-19.62, 1.55, 5.6]} rotationY={Math.PI / 2} accent={ov.accentViolet} />
+      <WallPoster position={[-19.62, 1.55, -1.2]} rotationY={Math.PI / 2} accent={ov.accentCyan} />
+      <WallPoster position={[19.62, 1.55, 2.4]} rotationY={-Math.PI / 2} accent={ov.accentAmber} />
 
       {/* zone separators: low office sideboards (no huge purple planes) */}
       <LowPlanterRow position={[-6.5, -0.8, -5.5]} length={6.0} rotationY={Math.PI / 2} seed={11} soilMap={soilTex} />
@@ -535,20 +913,6 @@ export function TrainingHubLevel() {
       <LowPlanterRow position={[-4.1, -0.8, 2.2]} length={5.0} rotationY={0} seed={21} soilMap={soilTex} />
       <LowPlanterRow position={[4.1, -0.8, 2.2]} length={5.0} rotationY={0} seed={22} soilMap={soilTex} />
 
-      {/* interaction pads (subtle carpet zones) */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-14.0, -0.79, 5.2]}>
-        <circleGeometry args={[2.25, 54]} />
-        <meshStandardMaterial color="#0f172a" emissive="#7c3aed" emissiveIntensity={0.07} />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0.0, -0.79, 2.9]}>
-        <circleGeometry args={[2.25, 54]} />
-        <meshStandardMaterial color="#0f172a" emissive="#38bdf8" emissiveIntensity={0.06} />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[2.6, -0.79, -8.6]}>
-        <circleGeometry args={[2.25, 54]} />
-        <meshStandardMaterial color="#0f172a" emissive="#f59e0b" emissiveIntensity={0.06} />
-      </mesh>
-
       {/* ZONES */}
       {/* Open space: desk grid */}
       {[-1, 0, 1].flatMap((row) =>
@@ -556,7 +920,9 @@ export function TrainingHubLevel() {
           const x = -15.0 + col * 3.2;
           const z = 6.5 - row * 2.4;
           const busy = (col + row * 0.6 + 0.8) % 1;
-          return <DeskStation key={`desk-${row}-${col}`} position={[x, -0.8, z]} rotationY={Math.PI} busy={busy} />;
+          return (
+            <DeskStation key={`desk-${row}-${col}`} position={[x, -0.8, z]} rotationY={Math.PI} busy={busy} woodMap={woodTex} />
+          );
         }),
       )}
       {[-1, 0, 1].flatMap((row) =>
@@ -564,7 +930,9 @@ export function TrainingHubLevel() {
           const x = 15.0 - col * 3.2;
           const z = 6.5 - row * 2.4;
           const busy = (0.3 + col * 0.27 + row * 0.4) % 1;
-          return <DeskStation key={`deskR-${row}-${col}`} position={[x, -0.8, z]} rotationY={Math.PI} busy={busy} />;
+          return (
+            <DeskStation key={`deskR-${row}-${col}`} position={[x, -0.8, z]} rotationY={Math.PI} busy={busy} woodMap={woodTex} />
+          );
         }),
       )}
 
@@ -572,33 +940,37 @@ export function TrainingHubLevel() {
       <group position={[0, -0.8, 4.6]}>
         <mesh position={[0, 0.65, 0]}>
           <boxGeometry args={[4.8, 0.12, 1.8]} />
-          <meshStandardMaterial color="#121a2f" metalness={0.15} roughness={0.65} />
+          <meshStandardMaterial map={woodTex} color={ov.woodDesk} metalness={ov.metal.frame} roughness={ov.rough.wood} />
         </mesh>
         <mesh position={[-2.1, 0.32, 0.7]}>
           <boxGeometry args={[0.1, 0.64, 0.1]} />
-          <meshStandardMaterial color="#0a1020" metalness={0.4} roughness={0.35} />
+          <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
         </mesh>
         <mesh position={[2.1, 0.32, 0.7]}>
           <boxGeometry args={[0.1, 0.64, 0.1]} />
-          <meshStandardMaterial color="#0a1020" metalness={0.4} roughness={0.35} />
+          <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
         </mesh>
         <mesh position={[-2.1, 0.32, -0.7]}>
           <boxGeometry args={[0.1, 0.64, 0.1]} />
-          <meshStandardMaterial color="#0a1020" metalness={0.4} roughness={0.35} />
+          <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
         </mesh>
         <mesh position={[2.1, 0.32, -0.7]}>
           <boxGeometry args={[0.1, 0.64, 0.1]} />
-          <meshStandardMaterial color="#0a1020" metalness={0.4} roughness={0.35} />
+          <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
         </mesh>
         {/* wall display removed: was read as a “big rectangle” in camera view */}
       </group>
 
       {/* Break room / lounge */}
-      <Lounge position={[0.0, -0.8, -9.0]} />
+      <Lounge position={[0.0, -0.8, -9.0]} woodMap={woodTex} />
       <Plant position={[-3.4, -0.8, -9.2]} size={1.05} />
       <Plant position={[3.6, -0.8, -9.0]} size={0.95} />
 
-      <Environment preset="city" />
+      {/* Glass focus rooms — 3 bays each side, built into shell + window row */}
+      <FocusRoomBayRow woodMap={woodTex} align="negX" />
+      <FocusRoomBayRow woodMap={woodTex} align="posX" />
+
+      <Environment preset="city" environmentIntensity={ov.environmentIntensity} />
     </>
   );
 }

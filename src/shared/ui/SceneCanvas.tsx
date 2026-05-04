@@ -51,7 +51,8 @@ function SceneObjects({ playerPosition, activeNpcId }: { playerPosition: [number
         const dx = playerPosition[0] - npc.position[0];
         const dz = playerPosition[2] - npc.position[2];
         const distance = Math.sqrt(dx * dx + dz * dz);
-        const canInteract = distance <= 1.9 && npc.id === activeNpcId;
+        const isTarget = npc.id === activeNpcId;
+        const canInteract = distance <= 1.9 && isTarget;
         return (
           <NpcActor
             key={npc.id}
@@ -60,6 +61,7 @@ function SceneObjects({ playerPosition, activeNpcId }: { playerPosition: [number
             role={npc.role}
             position={npc.position}
             accent={npc.accent}
+            highlight={isTarget}
             active={canInteract}
           />
         );
@@ -71,11 +73,9 @@ function SceneObjects({ playerPosition, activeNpcId }: { playerPosition: [number
 function FollowCamera({
   target,
   moveDir,
-  speed,
 }: {
   target: [number, number, number];
   moveDir: [number, number, number];
-  speed: number;
 }) {
   const { camera } = useThree();
   const state = useMemo(() => {
@@ -83,13 +83,16 @@ function FollowCamera({
       // persistent state for smooth-damping
       camVel: new Vector3(0, 0, 0),
       lookVel: new Vector3(0, 0, 0),
-      currentLook: new Vector3(0, 0.78, 0),
+      /** Смещение точки взгляда (XZ) в сторону стрейфа — орбита камеры не трогается. */
+      lookStrafeOffset: new Vector3(0, 0, 0),
+      lookStrafeVel: new Vector3(0, 0, 0),
+      currentLook: new Vector3(0, 1.0, 0),
       baseForward: new Vector3(0, 0, -1), // fixed yaw (no drift)
       desiredPos: new Vector3(),
       desiredLook: new Vector3(),
-      tmpRight: new Vector3(),
-      tmpTarget: new Vector3(),
       tmpBehind: new Vector3(),
+      tmpTarget: new Vector3(),
+      camFlatFwd: new Vector3(0, 0, -1),
     };
   }, []);
 
@@ -129,33 +132,58 @@ function FollowCamera({
     // Otherwise you get a slow drift and the character starts moving in an arc.
     const forward = state.baseForward; // fixed world direction
     const behind = state.tmpBehind.copy(forward).multiplyScalar(-1);
-    const right = state.tmpRight.set(-forward.z, 0, forward.x).normalize();
 
-    // 2) Stable 3rd-person offset (tilted view: up + behind + slight shoulder).
-    const baseBehind = 6.2;
-    const speedAdd = Math.min(1.4, speed * 0.08);
-    const behindDistance = baseBehind + speedAdd;
+    // 2) Орбита камеры — только фиксированный yaw 45° (стрейф орбиту не крутит).
+    const behindDistance = 6.2;
     const up = 4.6;
 
-    // 3) Soft feedback: tiny shift toward movement (inertia feel).
-    const side = 0.72;
-    const moveLen = Math.hypot(moveDir[0], moveDir[2]);
-    const lateralDrift = moveLen > 0.001 ? Math.min(0.28, speed * 0.015) : 0;
+    const yaw = Math.PI / 4;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const bx = behind.x * cos + behind.z * sin;
+    const bz = -behind.x * sin + behind.z * cos;
 
     state.desiredPos.set(target[0], target[1], target[2]);
-    state.desiredPos.addScaledVector(behind, behindDistance);
-    state.desiredPos.addScaledVector(right, side + lateralDrift);
+    state.desiredPos.x += bx * behindDistance;
+    state.desiredPos.z += bz * behindDistance;
     state.desiredPos.y = up;
 
-    // 4) Look-ahead: keep yaw stable (use baseForward only).
-    const lookAhead = 1.25 + Math.min(0.45, speed * 0.03);
-    state.desiredLook.set(target[0], 0.78, target[2]);
-    state.desiredLook.addScaledVector(forward, lookAhead);
+    // 3) Точка взгляда: база у головы ГГ + сдвиг только по стрейфу (экран влево/вправо) — открывается обзор, позиция камеры та же.
+    const moveLen = Math.hypot(moveDir[0], moveDir[2]);
+    camera.getWorldDirection(state.camFlatFwd);
+    let fcx = state.camFlatFwd.x;
+    let fcz = state.camFlatFwd.z;
+    const fcl = Math.hypot(fcx, fcz);
+    if (fcl > 1e-6) {
+      fcx /= fcl;
+      fcz /= fcl;
+    } else {
+      fcx = 0;
+      fcz = -1;
+    }
+    const crnx = -fcz;
+    const crnz = fcx;
 
-    // 5) SmoothDamp (spring) gives “догоняние” + inertia, but remains stable.
-    // Slightly different times for position vs look target.
-    const posSmooth = 0.2;
-    const lookSmooth = 0.12;
+    const strafeLookMax = 0.92;
+    let tx = 0;
+    let tz = 0;
+    if (moveLen > 0.02) {
+      const inv = 1 / moveLen;
+      const strafe = moveDir[0] * inv * crnx + moveDir[2] * inv * crnz;
+      const s = Math.max(-1, Math.min(1, strafe));
+      tx = crnx * s * strafeLookMax;
+      tz = crnz * s * strafeLookMax;
+    }
+    state.tmpTarget.set(tx, 0, tz);
+    smoothDampVec3(state.lookStrafeOffset, state.tmpTarget, state.lookStrafeVel, 0.28, delta);
+
+    state.desiredLook.set(target[0], 1.0, target[2]);
+    state.desiredLook.addScaledVector(forward, 0.22);
+    state.desiredLook.x += state.lookStrafeOffset.x;
+    state.desiredLook.z += state.lookStrafeOffset.z;
+
+    const posSmooth = 0.26;
+    const lookSmooth = 0.22;
 
     const camPos = camera.position;
     smoothDampVec3(camPos, state.desiredPos, state.camVel, posSmooth, delta);
@@ -169,9 +197,10 @@ function FollowCamera({
 }
 
 export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
-  const [playerPosition, setPlayerPosition] = useState<[number, number, number]>([0, 0, 4.5]);
+  const [playerPosition, setPlayerPosition] = useState<[number, number, number]>([1.2, -0.8, 0]);
   const [playerMoveDir, setPlayerMoveDir] = useState<[number, number, number]>([0, 0, -1]);
-  const [playerSpeed, setPlayerSpeed] = useState(0);
+  const [virtualInput, setVirtualInput] = useState<{ x: number; z: number } | null>(null);
+  const [isCoarsePointer, setIsCoarsePointer] = useState(false);
 
   const collisionBoxes = useMemo(() => {
     function boxFromCenterSize(
@@ -206,6 +235,14 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
   }, [activeNpc.position, playerPosition]);
 
   useEffect(() => {
+    const mq = window.matchMedia?.("(pointer: coarse)");
+    const update = () => setIsCoarsePointer(Boolean(mq?.matches));
+    update();
+    mq?.addEventListener?.("change", update);
+    return () => mq?.removeEventListener?.("change", update);
+  }, []);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.code !== "KeyE") return;
       if (!canInteract) return;
@@ -223,12 +260,12 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
         <PlayerAvatar
           onPositionChange={setPlayerPosition}
           collisionBoxes={collisionBoxes}
+          virtualInput={virtualInput}
           onMotionChange={(motion) => {
             setPlayerMoveDir(motion.moveDir);
-            setPlayerSpeed(motion.speed);
           }}
         />
-        <FollowCamera target={playerPosition} moveDir={playerMoveDir} speed={playerSpeed} />
+        <FollowCamera target={playerPosition} moveDir={playerMoveDir} />
       </Canvas>
 
       <div className="topHint">
@@ -241,6 +278,57 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
         subtitle={activeNpc.role}
         keyLabel="E"
       />
+
+      {isCoarsePointer && (
+        <div className="mobileControls" aria-hidden="true">
+          <div
+            className="joyBase"
+            onPointerDown={(e) => {
+              (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+              const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+              const cx = r.left + r.width / 2;
+              const cy = r.top + r.height / 2;
+              const dx = (e.clientX - cx) / (r.width / 2);
+              const dy = (e.clientY - cy) / (r.height / 2);
+              const x = Math.max(-1, Math.min(1, dx));
+              const z = Math.max(-1, Math.min(1, -dy));
+              setVirtualInput({ x, z });
+            }}
+            onPointerMove={(e) => {
+              if (!e.buttons) return;
+              const r = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+              const cx = r.left + r.width / 2;
+              const cy = r.top + r.height / 2;
+              const dx = (e.clientX - cx) / (r.width / 2);
+              const dy = (e.clientY - cy) / (r.height / 2);
+              const x = Math.max(-1, Math.min(1, dx));
+              const z = Math.max(-1, Math.min(1, -dy));
+              setVirtualInput({ x, z });
+            }}
+            onPointerUp={() => setVirtualInput(null)}
+            onPointerCancel={() => setVirtualInput(null)}
+          >
+            <div
+              className="joyKnob"
+              style={{
+                transform: `translate(${(virtualInput?.x ?? 0) * 26}px, ${-(virtualInput?.z ?? 0) * 26}px)`,
+              }}
+            />
+          </div>
+
+          <button
+            className="interactBtn"
+            type="button"
+            onClick={() => {
+              if (!canInteract) return;
+              onNpcInteract(activeNpcId);
+            }}
+            disabled={!canInteract}
+          >
+            E
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,6 @@
-import { QuestStatus } from "@/entities/quest";
+import { type CampaignStarSlot, QuestStatus } from "@/entities/quest";
 import { STATUS_LABELS } from "@/shared/constants/hud";
+import { CampaignStars } from "./CampaignStars";
 
 interface HudProps {
   missionTitle: string;
@@ -7,6 +8,9 @@ interface HudProps {
   missionProgressLabel: string;
   missionProgressValue: number; // 0..1
   status: QuestStatus;
+  campaignStars: CampaignStarSlot[];
+  onHudStarSlotRef?: (index: number, el: HTMLLIElement | null) => void;
+  hudStarPulseIndex?: number | null;
 }
 
 export function Hud({
@@ -15,6 +19,9 @@ export function Hud({
   missionProgressLabel,
   missionProgressValue,
   status,
+  campaignStars,
+  onHudStarSlotRef,
+  hudStarPulseIndex,
 }: HudProps) {
   const progressPercent = `${Math.round(Math.max(0, Math.min(1, missionProgressValue)) * 100)}%`;
 
@@ -22,7 +29,10 @@ export function Hud({
     <aside className="hudTop">
       <div className="hudCard">
         <div className="hudTitle">SOC Training Hub</div>
-        <div className="hudSub">Миссия {missionProgressLabel}</div>
+        <div className="hudSub" suppressHydrationWarning>
+          Миссия {missionProgressLabel}
+        </div>
+        <CampaignStars slots={campaignStars} onSlotRef={onHudStarSlotRef} pulseSlotIndex={hudStarPulseIndex} />
         <div className="progressBar" style={{ ["--progress" as never]: progressPercent }}>
           <div className="progressFill" />
         </div>

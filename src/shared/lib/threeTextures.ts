@@ -111,6 +111,80 @@ export function createCarpetTexture({
   return tex;
 }
 
+/** Wide-plank light parquet — joints + horizontal grain (office “паркет”) */
+export function createParquetTexture({
+  size = 512,
+  seed = 7101,
+  base = "#f5ebe3",
+  joint = "#c9b89e",
+  repeatU = 24,
+  repeatV = 24,
+}: {
+  size?: number;
+  seed?: number;
+  base?: string;
+  joint?: string;
+  repeatU?: number;
+  repeatV?: number;
+} = {}) {
+  const { canvas, ctx } = makeCanvas(size);
+  const b = new Color(base);
+  const j = new Color(joint);
+  const br = Math.floor(b.r * 255);
+  const bg = Math.floor(b.g * 255);
+  const bb = Math.floor(b.b * 255);
+  const jr = Math.floor(j.r * 255);
+  const jg = Math.floor(j.g * 255);
+  const jb = Math.floor(j.b * 255);
+
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+
+  const planks = 11;
+  const plankW = size / planks;
+  for (let i = 0; i < planks; i++) {
+    const drift = (rand(seed + i * 47) - 0.5) * 22;
+    const r = Math.max(0, Math.min(255, br + drift));
+    const gch = Math.max(0, Math.min(255, bg + drift * 0.92));
+    const bl = Math.max(0, Math.min(255, bb + drift * 0.88));
+    ctx.fillStyle = `rgb(${r},${gch},${bl})`;
+    const x0 = i * plankW + 1.5;
+    ctx.fillRect(x0, 0, plankW - 3, size);
+  }
+
+  for (let i = 1; i < planks; i++) {
+    const x = i * plankW - 1;
+    ctx.fillStyle = `rgb(${jr},${jg},${jb})`;
+    ctx.fillRect(x, 0, 2.5, size);
+  }
+
+  for (let y = 0; y < size; y += 2) {
+    const a = 0.04 + rand(seed + y * 5) * 0.05;
+    ctx.fillStyle = `rgba(${jr},${jg},${jb},${a})`;
+    ctx.fillRect(0, y, size, 1);
+  }
+
+  const img = ctx.getImageData(0, 0, size, size);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (rand(seed + (i >> 2)) - 0.5) * 10;
+    d[i] = Math.max(0, Math.min(255, d[i] + n));
+    d[i + 1] = Math.max(0, Math.min(255, d[i + 1] + n));
+    d[i + 2] = Math.max(0, Math.min(255, d[i + 2] + n));
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = RepeatWrapping;
+  tex.repeat.set(repeatU, repeatV);
+  tex.minFilter = LinearFilter;
+  tex.magFilter = LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
 export function createFabricNoiseTexture({
   size = 256,
   seed = 42,
@@ -139,6 +213,106 @@ export function createFabricNoiseTexture({
   tex.colorSpace = SRGBColorSpace;
   tex.wrapS = ClampToEdgeWrapping;
   tex.wrapT = ClampToEdgeWrapping;
+  tex.minFilter = LinearFilter;
+  tex.magFilter = LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Light oak / laminate — horizontal grain for desks & tables */
+export function createWoodLaminateTexture({
+  size = 256,
+  seed = 3101,
+  base = "#c9b89a",
+  grain = "#7d6b52",
+}: {
+  size?: number;
+  seed?: number;
+  base?: string;
+  grain?: string;
+} = {}) {
+  const { canvas, ctx } = makeCanvas(size);
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+
+  const g = new Color(grain);
+  const gr = Math.floor(g.r * 255);
+  const gg = Math.floor(g.g * 255);
+  const gb = Math.floor(g.b * 255);
+
+  // broad horizontal bands
+  for (let y = 0; y < size; y += 3 + Math.floor(rand(seed + y) * 4)) {
+    const a = 0.04 + rand(seed + y * 3) * 0.09;
+    ctx.fillStyle = `rgba(${gr},${gg},${gb},${a})`;
+    ctx.fillRect(0, y, size, 2);
+  }
+  // fine streaks
+  for (let i = 0; i < 900; i++) {
+    const y = Math.floor(rand(seed + i * 11) * size);
+    const x0 = Math.floor(rand(seed + i * 13) * size);
+    const w = 10 + Math.floor(rand(seed + i * 17) * 80);
+    ctx.strokeStyle = `rgba(${gr},${gg},${gb},${0.03 + rand(seed + i * 19) * 0.06})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x0, y);
+    ctx.lineTo(x0 + w, y + (rand(seed + i * 23) - 0.5) * 2);
+    ctx.stroke();
+  }
+
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = RepeatWrapping;
+  tex.repeat.set(2.2, 1.4);
+  tex.minFilter = LinearFilter;
+  tex.magFilter = LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Acoustic ceiling — soft tile grid */
+export function createCeilingTileTexture({
+  size = 256,
+  seed = 6201,
+  base = "#121a2a",
+  line = "#1c2738",
+}: {
+  size?: number;
+  seed?: number;
+  base?: string;
+  line?: string;
+} = {}) {
+  const { canvas, ctx } = makeCanvas(size);
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+  const cell = 32;
+  const l = new Color(line);
+  const lr = Math.floor(l.r * 255);
+  const lg = Math.floor(l.g * 255);
+  const lb = Math.floor(l.b * 255);
+  ctx.strokeStyle = `rgba(${lr},${lg},${lb},0.45)`;
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= size; x += cell) {
+    ctx.globalAlpha = 0.35 + rand(seed + x) * 0.25;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, size);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= size; y += cell) {
+    ctx.globalAlpha = 0.35 + rand(seed + y + 400) * 0.25;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(size, y);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  const tex = new CanvasTexture(canvas);
+  tex.colorSpace = SRGBColorSpace;
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = RepeatWrapping;
+  tex.repeat.set(5, 4);
   tex.minFilter = LinearFilter;
   tex.magFilter = LinearFilter;
   tex.needsUpdate = true;

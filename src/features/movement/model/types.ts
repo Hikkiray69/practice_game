@@ -4,6 +4,6 @@ export interface MovementConfig {
 }
 
 export const defaultMovementConfig: MovementConfig = {
-  speed: 1,
+  speed: 2,
   allowJump: false,
 };
