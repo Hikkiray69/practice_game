@@ -2,8 +2,8 @@
 
 import { Html } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
-import type { Group, MeshStandardMaterial } from "three";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { Mesh, type Group, type MeshStandardMaterial } from "three";
 import { createFabricNoiseTexture } from "@/shared/lib/threeTextures";
 
 interface NpcActorProps {
@@ -22,6 +22,35 @@ export function NpcActor({ name, role, position, accent, highlight = false, acti
   const ringMatRef = useRef<MeshStandardMaterial | null>(null);
   const emissive = useMemo(() => (active ? accent : "#1f2a44"), [accent, active]);
   const fabricTex = useMemo(() => createFabricNoiseTexture({ base: "#dde6f2", seed: name.length * 123 + role.length * 17 }), [name.length, role.length]);
+
+  function applyNpcShadowFlags() {
+    const root = groupRef.current;
+    if (!root) return;
+    root.traverse((obj) => {
+      if (!(obj instanceof Mesh)) return;
+      const mat = obj.material;
+      const mats = Array.isArray(mat) ? mat : mat ? [mat] : [];
+      const skipCast = mats.some(
+        (m) =>
+          m &&
+          typeof m === "object" &&
+          "transparent" in m &&
+          Boolean((m as MeshStandardMaterial).transparent) &&
+          "depthWrite" in m &&
+          (m as MeshStandardMaterial).depthWrite === false,
+      );
+      obj.castShadow = !skipCast;
+      obj.receiveShadow = true;
+    });
+  }
+
+  useLayoutEffect(() => {
+    applyNpcShadowFlags();
+  }, []);
+
+  useEffect(() => {
+    applyNpcShadowFlags();
+  }, []);
 
   useFrame((state) => {
     const g = groupRef.current;

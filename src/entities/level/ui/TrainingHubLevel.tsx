@@ -1,7 +1,10 @@
 "use client";
 
 import { Environment } from "@react-three/drei";
-import { useMemo } from "react";
+import { useThree } from "@react-three/fiber";
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import type { DirectionalLight } from "three";
+import { Group, Mesh } from "three";
 import {
   createCeilingTileTexture,
   createConcreteTexture,
@@ -11,6 +14,13 @@ import {
   createWoodLaminateTexture,
 } from "@/shared/lib/threeTextures";
 import { officeVisual as ov } from "../model/officeVisual";
+
+/** `true` — тест: directional сверху. `false` — свет с окна (боевой режим). */
+const DEBUG_OVERHEAD_SUN = false;
+
+const OVERHEAD_SUN_POS = [0, 30, 0] as const;
+const OVERHEAD_SUN_TARGET = [0, -0.8, 1] as const;
+const OVERHEAD_SUN_INTENSITY = 1.45;
 
 function CeilingLight({
   position,
@@ -24,7 +34,7 @@ function CeilingLight({
   emissive?: string;
 }) {
   return (
-    <mesh position={position} rotation={[Math.PI / 2, 0, 0]}>
+    <mesh position={position} rotation={[Math.PI / 2, 0, 0]} userData={{ shadow: "none" as const }}>
       <planeGeometry args={size} />
       <meshStandardMaterial
         color={ov.ink}
@@ -142,12 +152,12 @@ function LowPlanterRow({
 function CityBackdrop() {
   return (
     <group position={[0, 0, -18]}>
-      <mesh position={[0, 4.2, 0]}>
+      <mesh position={[0, 4.2, 0]} userData={{ shadow: "none" as const }}>
         <planeGeometry args={[60, 18]} />
         <meshStandardMaterial color={ov.cityDeep} emissive={ov.cityDeepEmissive} emissiveIntensity={1.05} roughness={1} metalness={0} />
       </mesh>
 
-      <mesh position={[0, 2.8, 0.01]}>
+      <mesh position={[0, 2.8, 0.01]} userData={{ shadow: "none" as const }}>
         <planeGeometry args={[58, 14]} />
         <meshStandardMaterial
           color={ov.cityWindows}
@@ -489,6 +499,7 @@ function FocusRoomBayRow({ woodMap, align }: { woodMap: ReturnType<typeof create
   );
 }
 
+/** Зона отдыха: диван (сиденье + спинка + два подлокотника) + низкий стол — без «полной полосы» спереди, чтобы не путать с тумбами. */
 function Lounge({
   position,
   woodMap,
@@ -496,18 +507,27 @@ function Lounge({
   position: [number, number, number];
   woodMap: ReturnType<typeof createWoodLaminateTexture>;
 }) {
+  const seatW = 1.92;
+  const seatD = 0.78;
+  const armW = 0.2;
+  const armD = 0.72;
+  const armX = seatW / 2 + armW / 2;
   return (
     <group position={position}>
-      <mesh position={[0, 0.42, 0]}>
-        <boxGeometry args={[2.2, 0.32, 0.9]} />
+      <mesh position={[0, 0.36, 0.02]}>
+        <boxGeometry args={[seatW, 0.28, seatD]} />
         <meshStandardMaterial color={ov.fabricSofa} roughness={ov.rough.fabric} metalness={ov.metal.low} />
       </mesh>
-      <mesh position={[0, 0.64, -0.34]}>
-        <boxGeometry args={[2.2, 0.46, 0.18]} />
+      <mesh position={[0, 0.56, -0.32]}>
+        <boxGeometry args={[seatW + 0.04, 0.42, 0.14]} />
         <meshStandardMaterial color={ov.fabricDark} roughness={0.85} metalness={ov.metal.low} />
       </mesh>
-      <mesh position={[0, 0.64, 0.38]}>
-        <boxGeometry args={[2.2, 0.22, 0.12]} />
+      <mesh position={[-armX, 0.34, 0.02]}>
+        <boxGeometry args={[armW, 0.44, armD]} />
+        <meshStandardMaterial color={ov.fabricDark} roughness={0.85} metalness={ov.metal.low} />
+      </mesh>
+      <mesh position={[armX, 0.34, 0.02]}>
+        <boxGeometry args={[armW, 0.44, armD]} />
         <meshStandardMaterial color={ov.fabricDark} roughness={0.85} metalness={ov.metal.low} />
       </mesh>
 
@@ -638,13 +658,21 @@ function TrashBin({ position }: { position: [number, number, number] }) {
 }
 
 function CoffeeStation({ position, rotationY = 0 }: { position: [number, number, number]; rotationY?: number }) {
+  const baseH = 0.28;
+  const baseY = baseH / 2;
+  const bodyH = 0.9;
+  const bodyY = baseH + bodyH / 2;
   return (
     <group position={position} rotation={[0, rotationY, 0]}>
-      <mesh position={[0, 0.45, 0]}>
-        <boxGeometry args={[0.95, 0.9, 0.55]} />
+      <mesh position={[0, baseY, 0]}>
+        <boxGeometry args={[1.06, baseH, 0.62]} />
+        <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
+      </mesh>
+      <mesh position={[0, bodyY, 0]}>
+        <boxGeometry args={[0.95, bodyH, 0.55]} />
         <meshStandardMaterial color={ov.fabricDark} metalness={0.12} roughness={0.72} />
       </mesh>
-      <mesh position={[0.18, 0.75, 0.28]}>
+      <mesh position={[0.18, bodyY + 0.3, 0.28]}>
         <boxGeometry args={[0.34, 0.22, 0.06]} />
         <meshStandardMaterial
           color={ov.ink}
@@ -654,7 +682,7 @@ function CoffeeStation({ position, rotationY = 0 }: { position: [number, number,
           metalness={0.12}
         />
       </mesh>
-      <mesh position={[-0.22, 0.62, 0.28]}>
+      <mesh position={[-0.22, bodyY + 0.05, 0.28]}>
         <cylinderGeometry args={[0.05, 0.05, 0.22, 12]} />
         <meshStandardMaterial color="#c5cedd" metalness={0.4} roughness={0.38} />
       </mesh>
@@ -743,26 +771,172 @@ function FloorTrim() {
   );
 }
 
-/** Mullions in front of glass — breaks “single blue slab” read */
+/**
+ * Северная стена: рама вокруг проёма 32×3 под стекло (как у текущего mesh glass).
+ * Сплошной slab перекрывал CityBackdrop — «стекло» не могло быть прозрачным по смыслу.
+ */
+function NorthWindowWallFrame() {
+  const z = -13.8;
+  return (
+    <group>
+      <mesh position={[-18, 1.0, z]}>
+        <boxGeometry args={[4, 4.2, 0.6]} />
+        <meshStandardMaterial color={ov.windowWallOuter} metalness={ov.metal.frame} roughness={ov.rough.wall} />
+      </mesh>
+      <mesh position={[18, 1.0, z]}>
+        <boxGeometry args={[4, 4.2, 0.6]} />
+        <meshStandardMaterial color={ov.windowWallOuter} metalness={ov.metal.frame} roughness={ov.rough.wall} />
+      </mesh>
+      <mesh position={[0, 2.9, z]}>
+        <boxGeometry args={[32, 0.4, 0.6]} />
+        <meshStandardMaterial color={ov.windowWallOuter} metalness={ov.metal.frame} roughness={ov.rough.wall} />
+      </mesh>
+      <mesh position={[0, -0.7, z]}>
+        <boxGeometry args={[32, 0.8, 0.6]} />
+        <meshStandardMaterial color={ov.windowWallOuter} metalness={ov.metal.frame} roughness={ov.rough.wall} />
+      </mesh>
+    </group>
+  );
+}
+
+/**
+ * Рама на стекле: центр как у glass [0,1.2,-13.49], верх/низ по кромке проёма (высота 3).
+ * Z чуть севернее центра стекла — утоплены в плоскость окна, не «висят» перед ним.
+ */
 function WindowMullions() {
   const xs = [-12, -6, 0, 6, 12];
+  const barZ = 0.045;
+  const crossW = 33.0;
+  const crossH = 0.09;
+  const vertW = 0.07;
+  const vertH = 3.0;
   return (
-    <group position={[0, 1.12, -13.44]}>
+    <group position={[0, 1.2, -13.505]}>
       {xs.map((x) => (
         <mesh key={x} position={[x, 0, 0]}>
-          <boxGeometry args={[0.08, 2.75, 0.07]} />
+          <boxGeometry args={[vertW, vertH, barZ]} />
           <meshStandardMaterial color={ov.ink} metalness={ov.metal.frame} roughness={0.75} />
         </mesh>
       ))}
-      <mesh position={[0, 1.38, 0]}>
-        <boxGeometry args={[31.5, 0.07, 0.07]} />
+      <mesh position={[0, 1.5, 0]}>
+        <boxGeometry args={[crossW, crossH, barZ]} />
         <meshStandardMaterial color={ov.ink} metalness={ov.metal.frame} roughness={0.75} />
       </mesh>
-      <mesh position={[0, -1.38, 0]}>
-        <boxGeometry args={[31.5, 0.07, 0.07]} />
+      <mesh position={[0, -1.5, 0]}>
+        <boxGeometry args={[crossW, crossH, barZ]} />
         <meshStandardMaterial color={ov.ink} metalness={ov.metal.frame} roughness={0.75} />
       </mesh>
     </group>
+  );
+}
+
+function materialSkipsShadowCast(m: object): boolean {
+  return (
+    "transparent" in m &&
+    Boolean((m as { transparent?: boolean }).transparent) &&
+    "depthWrite" in m &&
+    (m as { depthWrite?: boolean }).depthWrite === false
+  );
+}
+
+function applyLevelMeshShadowFlags(root: Group) {
+  root.traverse((obj) => {
+    if (!(obj instanceof Mesh)) return;
+    const flag = obj.userData.shadow as "none" | "receiveOnly" | undefined;
+    if (flag === "none") {
+      obj.castShadow = false;
+      obj.receiveShadow = false;
+      return;
+    }
+    if (flag === "receiveOnly") {
+      obj.castShadow = false;
+      obj.receiveShadow = true;
+      return;
+    }
+    const mat = obj.material;
+    const mats = Array.isArray(mat) ? mat : mat ? [mat] : [];
+    const skipCast = mats.some((m) => m && typeof m === "object" && materialSkipsShadowCast(m));
+    obj.receiveShadow = true;
+    let cast = !skipCast;
+    if (cast && obj.geometry) {
+      if (!obj.geometry.boundingSphere) obj.geometry.computeBoundingSphere();
+      const r = obj.geometry.boundingSphere?.radius ?? 0;
+      /** Сотни микромешей в одном shadow-pass дают пустой/сломаный результат на части драйверов. */
+      if (r > 0 && r < 0.22) cast = false;
+    }
+    obj.castShadow = cast;
+  });
+}
+
+/** Applies cast/receive shadow flags to level geometry (opt-out via mesh.userData.shadow). */
+function LevelShadowGroup({ children }: { children: ReactNode }) {
+  const rootRef = useRef<Group>(null);
+  const apply = () => {
+    const root = rootRef.current;
+    if (root) applyLevelMeshShadowFlags(root);
+  };
+  useLayoutEffect(() => {
+    apply();
+  }, []);
+  useEffect(() => {
+    apply();
+  }, []);
+  return <group ref={rootRef}>{children}</group>;
+}
+
+/**
+ * Ключевой directional с тенями. `DEBUG_OVERHEAD_SUN` — тест «с неба».
+ * Target должен быть в сцене: `scene.add(light.target)` (three.js).
+ */
+function SunDirectional() {
+  const scene = useThree((s) => s.scene);
+  const ref = useRef<DirectionalLight | null>(null);
+
+  useLayoutEffect(() => {
+    const L = ref.current;
+    if (!L) return;
+
+    L.castShadow = true;
+    L.shadow.mapSize.set(2048, 2048);
+    L.shadow.bias = 0;
+    L.shadow.normalBias = DEBUG_OVERHEAD_SUN ? 0.004 : 0.008;
+    const cam = L.shadow.camera;
+    cam.near = 0.05;
+    cam.far = 130;
+    cam.left = -48;
+    cam.right = 48;
+    cam.top = 48;
+    cam.bottom = -48;
+    cam.updateProjectionMatrix();
+
+    if (DEBUG_OVERHEAD_SUN) {
+      L.target.position.set(OVERHEAD_SUN_TARGET[0], OVERHEAD_SUN_TARGET[1], OVERHEAD_SUN_TARGET[2]);
+    } else {
+      L.target.position.set(0, 0.4, 3.5);
+    }
+    if (L.target.parent !== scene) {
+      scene.add(L.target);
+    }
+
+    return () => {
+      if (L.target.parent === scene) {
+        scene.remove(L.target);
+      }
+    };
+  }, [scene]);
+
+  return (
+    <directionalLight
+      key={DEBUG_OVERHEAD_SUN ? "overhead" : "window"}
+      ref={ref}
+      castShadow
+      name={DEBUG_OVERHEAD_SUN ? "debugOverheadSun" : "windowSun"}
+      position={
+        DEBUG_OVERHEAD_SUN ? ([...OVERHEAD_SUN_POS] as [number, number, number]) : ([...ov.windowKey.pos] as [number, number, number])
+      }
+      intensity={DEBUG_OVERHEAD_SUN ? OVERHEAD_SUN_INTENSITY : ov.windowKey.intensity}
+      color={ov.windowKey.color}
+    />
   );
 }
 
@@ -793,6 +967,12 @@ export function TrainingHubLevel() {
   );
   const ceilingTex = useMemo(() => createCeilingTileTexture({ seed: 6201, base: ov.ceiling, line: ov.ceilingGridEmissive }), []);
 
+  /** Паркет не уходит севернее стекла — иначе через transmission виден «пол за окном». */
+  const floorZNorth = -13.46;
+  const floorZSouth = 27;
+  const floorDepthZ = floorZSouth - floorZNorth;
+  const floorCenterZ = (floorZSouth + floorZNorth) / 2;
+
   return (
     <>
       <color attach="background" args={[ov.background]} />
@@ -811,19 +991,15 @@ export function TrainingHubLevel() {
         <pointLight key={i} position={[...L.pos]} intensity={L.intensity} color={L.color} distance={L.distance} decay={2} />
       ))}
 
-      <directionalLight
-        position={[...ov.windowKey.pos]}
-        intensity={ov.windowKey.intensity}
-        color={ov.windowKey.color}
-        castShadow={false}
-      />
+      <SunDirectional />
 
       {ov.ceilingPanels.map((p, i) => (
         <CeilingLight key={i} position={[...p.pos]} size={[...p.size]} intensity={p.intensity} />
       ))}
 
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.8, 0]} receiveShadow>
-        <planeGeometry args={[54, 54]} />
+      <LevelShadowGroup>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.8, floorCenterZ]} userData={{ shadow: "receiveOnly" as const }}>
+        <planeGeometry args={[54, floorDepthZ]} />
         <meshStandardMaterial
           color={ov.floorTint}
           map={floorTex}
@@ -834,7 +1010,8 @@ export function TrainingHubLevel() {
 
       <FloorTrim />
 
-      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 3.06, -2]}>
+      {/* Не castShadow: иначе плоскость «закрывает» солнце с окна и даёт гигантскую тень на пол. */}
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, 3.06, -2]} userData={{ shadow: "none" as const }}>
         <planeGeometry args={[40, 26]} />
         <meshStandardMaterial
           map={ceilingTex}
@@ -860,22 +1037,25 @@ export function TrainingHubLevel() {
         <meshStandardMaterial color={ov.wallPaint} map={wallTex} metalness={ov.metal.low} roughness={ov.rough.wall} />
       </mesh>
 
-      <mesh position={[0, 1.0, -13.8]}>
-        <boxGeometry args={[40, 4.2, 0.6]} />
-        <meshStandardMaterial color={ov.windowWallOuter} metalness={ov.metal.frame} roughness={ov.rough.wall} />
-      </mesh>
-      <mesh position={[0, 1.2, -13.49]}>
+      <CityBackdrop />
+
+      <NorthWindowWallFrame />
+      <mesh position={[0, 1.2, -13.49]} userData={{ shadow: "none" as const }}>
         <boxGeometry args={[32, 3.0, 0.06]} />
-        <meshStandardMaterial
-          color={ov.glassTint}
-          emissive={ov.glassEmissive}
-          emissiveIntensity={0.32}
-          metalness={0.12}
-          roughness={0.28}
+        <meshPhysicalMaterial
+          color="#dce8f8"
+          metalness={0.04}
+          roughness={0.08}
+          transmission={0.92}
+          thickness={0.08}
+          ior={1.48}
+          transparent
+          envMapIntensity={0.45}
+          attenuationColor="#93a8c8"
+          attenuationDistance={2.5}
         />
       </mesh>
       <WindowMullions />
-      <CityBackdrop />
 
       <AreaRug position={[0, -0.795, -0.6]} size={[9, 5.5]} rotationY={0} fabricMap={rugTexA} tint={ov.rugTintA} />
       <AreaRug position={[-12, -0.795, 5.0]} size={[7.5, 4.8]} rotationY={0.04} fabricMap={rugTexB} tint={ov.rugTintB} />
@@ -896,8 +1076,8 @@ export function TrainingHubLevel() {
       <TrashBin position={[1.1, -0.8, 8.1]} />
       <TrashBin position={[-10.5, -0.8, -10.2]} />
 
-      <CoffeeStation position={[-1.2, -0.8, -10.2]} rotationY={Math.PI * 0.15} />
-      <CoffeeStation position={[1.4, -0.8, -10.0]} rotationY={-Math.PI * 0.12} />
+      {/* Сбоку от Lounge (−X), чтобы не пересекаться с зоной / NPC справа */}
+      <CoffeeStation position={[-2.35, -0.8, -9.02]} rotationY={Math.PI * 0.48 - Math.PI / 2} />
 
       <WallPoster position={[-19.62, 1.55, 5.6]} rotationY={Math.PI / 2} accent={ov.accentViolet} />
       <WallPoster position={[-19.62, 1.55, -1.2]} rotationY={Math.PI / 2} accent={ov.accentCyan} />
@@ -969,6 +1149,8 @@ export function TrainingHubLevel() {
       {/* Glass focus rooms — 3 bays each side, built into shell + window row */}
       <FocusRoomBayRow woodMap={woodTex} align="negX" />
       <FocusRoomBayRow woodMap={woodTex} align="posX" />
+
+      </LevelShadowGroup>
 
       <Environment preset="city" environmentIntensity={ov.environmentIntensity} />
     </>

@@ -1,17 +1,47 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PlayerAvatar } from "@/features/movement";
 import { NpcActor } from "@/entities/npc";
 import { useFrame, useThree } from "@react-three/fiber";
 import { TrainingHubLevel } from "@/entities/level";
 import { InteractionPrompt } from "@/features/interaction-prompt";
-import { Vector3 } from "three";
+import { PCFShadowMap, Vector3 } from "three";
 
 interface SceneCanvasProps {
   activeNpcId: string;
   onNpcInteract: (npcId: string) => void;
+}
+
+/** Один раз в dev печатает факты о тенях (если 0 — искать в коде/консоли). */
+function ShadowDiagnostics() {
+  const scene = useThree((s) => s.scene);
+  const gl = useThree((s) => s.gl);
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current || process.env.NODE_ENV !== "development") return;
+    done.current = true;
+    let meshesCast = 0;
+    let meshesRecv = 0;
+    let dirCast = 0;
+    scene.traverse((o) => {
+      const x = o as { isMesh?: boolean; isDirectionalLight?: boolean; castShadow?: boolean; receiveShadow?: boolean };
+      if (x.isMesh) {
+        if (x.castShadow) meshesCast += 1;
+        if (x.receiveShadow) meshesRecv += 1;
+      }
+      if (x.isDirectionalLight && x.castShadow) dirCast += 1;
+    });
+    console.info("[shadow check]", {
+      shadowMapEnabled: gl.shadowMap.enabled,
+      shadowMapType: gl.shadowMap.type,
+      directionalLightsCastShadow: dirCast,
+      meshesCastShadow: meshesCast,
+      meshesReceiveShadow: meshesRecv,
+    });
+  }, [scene, gl]);
+  return null;
 }
 
 const NPCS = [
@@ -255,7 +285,12 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
 
   return (
     <div className="sceneWrap fullscreen">
-      <Canvas camera={{ position: [0, 4.8, 10.5], fov: 55 }}>
+      <Canvas
+        shadows={{ enabled: true, type: PCFShadowMap, autoUpdate: true }}
+        camera={{ position: [0, 4.8, 10.5], fov: 55 }}
+        gl={{ alpha: false, antialias: true, powerPreference: "high-performance" }}
+      >
+        <ShadowDiagnostics />
         <SceneObjects playerPosition={playerPosition} activeNpcId={activeNpcId} />
         <PlayerAvatar
           onPositionChange={setPlayerPosition}
