@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { playGameUiSfx } from "@/shared/lib/gameUiSfx";
 
 const STEP_MS = 1000;
 const DIGITS = [3, 2, 1] as const;
@@ -19,11 +20,13 @@ export function MinigameCountdown({ onComplete }: { onComplete: () => void }) {
 
   useEffect(() => {
     if (index >= DIGITS.length) {
+      playGameUiSfx("go");
       queueMicrotask(() => {
         onCompleteRef.current();
       });
       return;
     }
+    playGameUiSfx("tick");
     const id = window.setTimeout(() => {
       setIndex((i) => i + 1);
     }, STEP_MS);

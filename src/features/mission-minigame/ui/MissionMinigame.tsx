@@ -2,6 +2,7 @@
 
 import type { MinigameId } from "@/entities/quest";
 import { useCallback, useState } from "react";
+import { playGameUiSfx } from "@/shared/lib/gameUiSfx";
 import type { VictoryStarFlightConfig } from "../model/victoryStarFlight";
 import { MemoryMinigame } from "./MemoryMinigame";
 import { MinigameCountdown } from "./MinigameCountdown";
@@ -33,6 +34,7 @@ export function MissionMinigame({ id, onHudOutcome, onWinContinue, victoryStarFl
   }, []);
 
   const handleVictoryUi = useCallback(() => {
+    playGameUiSfx("win");
     setShowShellContinue(true);
   }, []);
 
@@ -69,17 +71,25 @@ export function MissionMinigame({ id, onHudOutcome, onWinContinue, victoryStarFl
             type="button"
             className="button"
             onClick={() => {
+              playGameUiSfx("confirm");
               onWinContinue();
               setShowShellContinue(false);
             }}
           >
-            Продолжить к выбору в миссии
+            Перейти к выбору в миссии
           </button>
         </div>
       )}
       {!showShellContinue && (
         <div className="dialogueActions single miniGameSkipRow">
-          <button type="button" className="button secondary" onClick={() => onHudOutcome(false)}>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => {
+              playGameUiSfx("tap");
+              onHudOutcome(false);
+            }}
+          >
             Пропустить миниигру
           </button>
         </div>

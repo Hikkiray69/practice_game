@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   type CampaignStarSlot,
   type QuestChoice,
@@ -15,6 +15,10 @@ import {
   CampaignStars,
   MetricsExplainCard,
 } from "@/features/scoring-progress";
+import { playGameUiSfx } from "@/shared/lib/gameUiSfx";
+
+/** Один проигрыш фанфары за показ финала кампании (в т.ч. против двойного mount в Strict Mode). */
+let campaignEndFanfareArmed = true;
 
 interface DialoguePanelProps {
   isOpen: boolean;
@@ -86,12 +90,24 @@ export function DialoguePanel({
   victoryStarFlight,
 }: DialoguePanelProps) {
   const [campaignMetricsSheetOpen, setCampaignMetricsSheetOpen] = useState(false);
+  const campaignEndSummary = Boolean(isOpen && isCampaignFinished && showCampaignSummary);
+
+  useEffect(() => {
+    if (!campaignEndSummary) {
+      campaignEndFanfareArmed = true;
+      return;
+    }
+    if (!campaignEndFanfareArmed) {
+      return;
+    }
+    campaignEndFanfareArmed = false;
+    playGameUiSfx("campaignEnd");
+  }, [campaignEndSummary]);
 
   if (!isOpen) {
     return null;
   }
 
-  const campaignEndSummary = isCampaignFinished && showCampaignSummary;
   const campaignTripleTriumph =
     campaignStars.length >= 3 && campaignStars.every((slot) => slot === "earned");
 
@@ -136,11 +152,21 @@ export function DialoguePanel({
                 <button
                   className="button secondary"
                   type="button"
-                  onClick={() => setCampaignMetricsSheetOpen(true)}
+                  onClick={() => {
+                    playGameUiSfx("tap");
+                    setCampaignMetricsSheetOpen(true);
+                  }}
                 >
                   Посмотреть сводку
                 </button>
-                <button className="button" type="button" onClick={onRestartCampaign}>
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => {
+                    playGameUiSfx("confirm");
+                    onRestartCampaign();
+                  }}
+                >
                   Попробовать снова (все 3 миссии)
                 </button>
               </div>
@@ -156,13 +182,21 @@ export function DialoguePanel({
             aria-label="Свод кампании"
             onClick={(e) => {
               if (e.target === e.currentTarget) {
+                playGameUiSfx("tap");
                 setCampaignMetricsSheetOpen(false);
               }
             }}
           >
             <div className="metricsSheetPanel">
               <div className="metricsSheetToolbar">
-                <button className="button secondary" type="button" onClick={() => setCampaignMetricsSheetOpen(false)}>
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={() => {
+                    playGameUiSfx("tap");
+                    setCampaignMetricsSheetOpen(false);
+                  }}
+                >
                   Закрыть
                 </button>
               </div>
@@ -190,7 +224,14 @@ export function DialoguePanel({
 
       {status === "new" && canStart && (
         <div className="dialogueActions single">
-          <button className="button" type="button" onClick={onStart}>
+          <button
+            className="button"
+            type="button"
+            onClick={() => {
+              playGameUiSfx("confirm");
+              onStart();
+            }}
+          >
             Начать миссию
           </button>
         </div>
@@ -213,7 +254,14 @@ export function DialoguePanel({
             <p className="dialogueText">{preambleBeat.text}</p>
           </div>
           <div className="dialogueActions single">
-            <button className="button" type="button" onClick={onAdvancePreamble}>
+            <button
+              className="button"
+              type="button"
+              onClick={() => {
+                playGameUiSfx("tap");
+                onAdvancePreamble();
+              }}
+            >
               {preambleBeat.speaker === "player" ? "Сказать это" : "Далее"}
             </button>
           </div>
@@ -234,7 +282,15 @@ export function DialoguePanel({
         <div className="choiceList">
           {(aiLoading || !hasAiAssist) && (
             <div className="dialogueActions single">
-              <button className="button ai" type="button" onClick={onAskAiAssist} disabled={aiLoading}>
+              <button
+                className="button ai"
+                type="button"
+                onClick={() => {
+                  playGameUiSfx("tap");
+                  onAskAiAssist();
+                }}
+                disabled={aiLoading}
+              >
                 {aiLoading ? "AI думает..." : "AI: диалог и подсказки"}
               </button>
             </div>
@@ -262,7 +318,10 @@ export function DialoguePanel({
               className="button secondary"
               key={choice.id}
               type="button"
-              onClick={() => onChoose(choice.id)}
+              onClick={() => {
+                playGameUiSfx("confirm");
+                onChoose(choice.id);
+              }}
             >
               {choice.label}
             </button>
@@ -283,15 +342,36 @@ export function DialoguePanel({
               })}
             />
             <div className="dialogueActions">
-              <button className="button secondary" type="button" onClick={onRetry}>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => {
+                  playGameUiSfx("tap");
+                  onRetry();
+                }}
+              >
                 Попробовать еще раз
               </button>
               {hasNextMission ? (
-                <button className="button" type="button" onClick={onNextMission}>
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => {
+                    playGameUiSfx("confirm");
+                    onNextMission();
+                  }}
+                >
                   Следующая миссия
                 </button>
               ) : (
-                <button className="button" type="button" onClick={onRetry}>
+                <button
+                  className="button"
+                  type="button"
+                  onClick={() => {
+                    playGameUiSfx("confirm");
+                    onRetry();
+                  }}
+                >
                   Пройти снова
                 </button>
               )}
@@ -317,10 +397,24 @@ export function DialoguePanel({
               })}
             />
             <div className="dialogueActions">
-              <button className="button secondary" type="button" onClick={onRetry}>
+              <button
+                className="button secondary"
+                type="button"
+                onClick={() => {
+                  playGameUiSfx("tap");
+                  onRetry();
+                }}
+              >
                 Попробовать еще раз
               </button>
-              <button className="button" type="button" onClick={onShowCampaignSummary}>
+              <button
+                className="button"
+                type="button"
+                onClick={() => {
+                  playGameUiSfx("confirm");
+                  onShowCampaignSummary();
+                }}
+              >
                 Итоги прохождения
               </button>
             </div>

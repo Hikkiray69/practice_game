@@ -5,22 +5,177 @@ import { useThree } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import type { MutableRefObject } from "react";
 import {
+  CircleGeometry,
   ConeGeometry,
   DoubleSide,
   Euler,
   Group,
   InstancedMesh,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   Quaternion,
+  SphereGeometry,
   Vector3,
 } from "three";
 import { defaultMovementConfig } from "@/features/movement/model/types";
+import { playOverloadFartSound, preloadOverloadFartAudio } from "@/features/movement/lib/overloadFartAudio";
 import { createFabricNoiseTexture } from "@/shared/lib/threeTextures";
 
 /** Совпадает с полом `TrainingHubLevel` (`mesh` на y = -0.8). */
 const FLOOR_Y = -0.8;
+/** Пивот вращения перегруза / полёта — торс (~пояс), иначе ось в ногах уводит силуэт под пол. */
+const CHARACTER_SPIN_PIVOT_Y = 0.86;
+
+const SPACE_CHARGE_SEC = 5;
+const OVERLOAD_SEC = 5;
+const SPLAT_COUNT = 160;
+/** Локальный Y группы брызг под корнем игрока (как в JSX). */
+const SPLAT_GROUP_LOCAL_Y = 0.22;
+/** Пятна на полу: инстансы в мировых координатах, кольцевой буфер. */
+const STAIN_MAX = 440;
+/** Чуть выше `FLOOR_Y`, без z-fight с плейном пола. */
+const STAIN_Y_ABOVE_FLOOR = 0.026;
+/** Порог попадания капли на пол (мировой Y), с запасом на дискретный шаг. */
+const STAIN_FLOOR_HIT = 0.075;
+
+/**
+ * Единый цвет без instanceColor: иначе MeshBasic + InstancedMesh + vertexColors
+ * даёт чёрные капли/пятна в ряде сборок WebGL.
+ */
+/** Летающие капли — тёмно-коричневый, почти как шоколадная грязь. */
+const SPLAT_MATERIAL_COLOR = "#6a4a32";
+/** Лужи на полу ещё темнее капель. */
+const STAIN_MATERIAL_COLOR = "#4d3524";
+
+const UNDERFOOT_SLUDGE_INTERVAL_OVERLOAD = 0.048;
+const UNDERFOOT_SLUDGE_INTERVAL_JET = 0.062;
+const UNDERFOOT_SLUDGE_BATCH_OVERLOAD = 3;
+const UNDERFOOT_SLUDGE_BATCH_JET = 2;
+
+function commitFloorStain(
+  stainMesh: InstancedMesh,
+  dummy: Object3D,
+  stainWrite: number,
+  wx: number,
+  wz: number,
+  seed: number,
+): number {
+  const idx = stainWrite % STAIN_MAX;
+  dummy.position.set(wx, FLOOR_Y + STAIN_Y_ABOVE_FLOOR, wz);
+  dummy.rotation.set(-Math.PI / 2, 0, 0);
+  // Равномерный масштаб: круг остаётся кругом (без эллипса).
+  const s = 0.18 + (seed % 60) / 85;
+  dummy.scale.setScalar(s);
+  dummy.updateMatrix();
+  stainMesh.setMatrixAt(idx, dummy.matrix);
+  stainMesh.instanceMatrix.needsUpdate = true;
+  return stainWrite + 1;
+}
+
+/** Крупная лужа под персонажем (мировой XZ — как тень на полу, даже в полёте). */
+function commitUnderfootSludge(
+  stainMesh: InstancedMesh,
+  dummy: Object3D,
+  stainWrite: number,
+  wx: number,
+  wz: number,
+  seed: number,
+): number {
+  const idx = stainWrite % STAIN_MAX;
+  dummy.position.set(wx, FLOOR_Y + STAIN_Y_ABOVE_FLOOR + 0.002, wz);
+  dummy.rotation.set(-Math.PI / 2, 0, 0);
+  const UNDERFOOT_SLUDGE_SCALE = 3;
+  // Равномерный масштаб: лужа параллельна полу и не растягивается в эллипс.
+  const s = (0.5 + (seed % 70) / 52) * UNDERFOOT_SLUDGE_SCALE;
+  dummy.scale.setScalar(s);
+  dummy.updateMatrix();
+  stainMesh.setMatrixAt(idx, dummy.matrix);
+  stainMesh.instanceMatrix.needsUpdate = true;
+  return stainWrite + 1;
+}
+
+function spawnUnderfootSludgeBatch(
+  stainMesh: InstancedMesh,
+  dummy: Object3D,
+  stainWrite: number,
+  group: Group,
+  timeKey: number,
+  batch: number,
+): number {
+  let w = stainWrite;
+  for (let b = 0; b < batch; b++) {
+    const seed = timeKey * 131 + b * 977 + batch * 19;
+    const jx = (((seed * 17) % 100) / 100 - 0.5) * 1.05;
+    const jz = (((seed * 31) % 100) / 100 - 0.5) * 1.05;
+    const cy = Math.cos(group.rotation.y);
+    const sy = Math.sin(group.rotation.y);
+    const wx = group.position.x + jx * cy + jz * sy;
+    const wz = group.position.z - jx * sy + jz * cy;
+    w = commitUnderfootSludge(stainMesh, dummy, w, wx, wz, seed);
+  }
+  return w;
+}
+
+function respawnSplatOverload(
+  i: number,
+  t: number,
+  px: Float32Array,
+  py: Float32Array,
+  pz: Float32Array,
+  vx: Float32Array,
+  vy: Float32Array,
+  vz: Float32Array,
+  life: Float32Array,
+) {
+  const a = (((i * 17.23) % 1000) / 1000) * Math.PI * 2 + t * 4.2;
+  const b = (((i * 31.91) % 1000) / 1000) * Math.PI;
+  const wobbleA = Math.sin(t * 22 + i * 0.9) * 0.14;
+  const wobbleB = Math.cos(t * 19 + i * 1.1) * 0.12;
+  px[i] = ((i * 13) % 10) / 10 * 0.58 - 0.29 + wobbleA;
+  py[i] = 0.26 + ((i * 7) % 10) / 85 + ((i * 3) % 5) * 0.058;
+  pz[i] = ((i * 19) % 10) / 10 * 0.58 - 0.29 + wobbleB;
+  const spd = 7.1 + ((i * 41) % 100) / 8.5;
+  const silly = Math.sin(t * 31 + i) * 0.52;
+  vx[i] = Math.sin(b) * Math.cos(a) * spd + silly;
+  vy[i] = Math.abs(Math.cos(b)) * spd * 0.86 + 3.05 + ((i % 5) * 0.22);
+  vz[i] = Math.sin(b) * Math.sin(a) * spd + silly * 0.85;
+  life[i] = 0.58 + ((i * 59) % 100) / 110;
+}
+
+function respawnSplatJet(
+  i: number,
+  ft: number,
+  px: Float32Array,
+  py: Float32Array,
+  pz: Float32Array,
+  vx: Float32Array,
+  vy: Float32Array,
+  vz: Float32Array,
+  life: Float32Array,
+  /** Чем выше игрок над полом, тем дольше живёт капля, чтобы долетала до y = FLOOR_Y. */
+  playerAboveFloorY: number,
+) {
+  const seed = i * 47 + Math.floor(ft * 30);
+  const a = ((seed % 360) / 360) * Math.PI * 2;
+  const spread = 0.45 + ((seed * 3) % 10) / 21;
+  const sputter = Math.sin(ft * 40 + i * 1.7) * 0.1;
+  px[i] = Math.cos(a) * spread * 0.4 + sputter;
+  py[i] = 0.04 + ((seed % 5) * 0.024);
+  pz[i] = Math.sin(a) * spread * 0.4 - sputter * 0.72;
+  const jet = 7.4 + ((seed * 11) % 20) / 4.2;
+  vx[i] = Math.cos(a + 0.4) * (1.42 + (seed % 7) / 4.2);
+  vy[i] = -jet - ((seed % 5) * 0.45);
+  vz[i] = Math.sin(a + 0.4) * (1.42 + (seed % 6) / 4.6);
+  const extraLife = Math.min(2.4, playerAboveFloorY * 0.16);
+  life[i] = 0.48 + ((seed * 13) % 100) / 200 + extraLife;
+}
+/** Ускорение вверх на «тяге» после перегруза (ед/с²). */
+const FLIGHT_THRUST_Y = 11.2;
+const FLIGHT_INITIAL_VY = 6.2;
+/** 0 — обычный режим, 1 — перегруз, 2 — улет вверх на тяге. */
+type PlayerBurstPhase = 0 | 1 | 2;
 
 /** Плавный поворот к целевому yaw по кратчайшей дуге (рад). atan2(sin,cos) — корректно при любом «намотанном» from. */
 function lerpYawShortest(from: number, to: number, alpha: number): number {
@@ -44,17 +199,45 @@ interface PlayerAvatarProps {
     speed: number; // units/sec
     yaw: number; // radians
   }) => void;
+  /** Пасхалка: вызов в кадре старта перегруза (Space 3 с). */
+  onOverloadStarted?: () => void;
 }
 
 export function PlayerAvatar({
   onPositionChange,
   onMotionChange,
+  onOverloadStarted,
   collisionBoxes,
   virtualInput,
   virtualInputRef,
 }: PlayerAvatarProps) {
   const { camera } = useThree();
   const groupRef = useRef<Group>(null);
+  /** Визуал персонажа + брызги. */
+  const characterVisualRef = useRef<Group>(null);
+  const splatMeshRef = useRef<InstancedMesh>(null);
+  const splatDummyRef = useRef(new Object3D());
+  const splatLifeRef = useRef(new Float32Array(SPLAT_COUNT));
+  const splatPxRef = useRef(new Float32Array(SPLAT_COUNT));
+  const splatPyRef = useRef(new Float32Array(SPLAT_COUNT));
+  const splatPzRef = useRef(new Float32Array(SPLAT_COUNT));
+  const splatVxRef = useRef(new Float32Array(SPLAT_COUNT));
+  const splatVyRef = useRef(new Float32Array(SPLAT_COUNT));
+  const splatVzRef = useRef(new Float32Array(SPLAT_COUNT));
+  const stainMeshRef = useRef<InstancedMesh>(null);
+  const stainDummyRef = useRef(new Object3D());
+  const stainWriteRef = useRef(0);
+  const underfootSludgeAccRef = useRef(0);
+  const sludgeSpawnSeqRef = useRef(0);
+  const tmpSplatWorldRef = useRef(new Vector3());
+  const burstPhaseRef = useRef<PlayerBurstPhase>(0);
+  const spaceChargeRef = useRef(0);
+  const overloadTimerRef = useRef(0);
+  const overloadSpinXRef = useRef(0);
+  const overloadSpinYRef = useRef(0);
+  const overloadSpinZRef = useRef(0);
+  const flightVelYRef = useRef(0);
+  const flightTimeRef = useRef(0);
   const legsGroupRef = useRef<Group>(null);
   const wheelchairGroupRef = useRef<Group>(null);
   /** Пивоты для качания при ходьбе (таз / плечо). */
@@ -214,8 +397,88 @@ export function PlayerAvatar({
     };
   }, [hairInstanced]);
 
+  const splatMeshTemplate = useMemo(() => {
+    const geom = new SphereGeometry(0.056, 8, 8);
+    /** Без освещения — иначе мелкие капли «пропадают» в тени плаща. */
+    const mat = new MeshBasicMaterial({
+      color: SPLAT_MATERIAL_COLOR,
+      depthTest: true,
+      depthWrite: true,
+    });
+    const mesh = new InstancedMesh(geom, mat, SPLAT_COUNT);
+    mesh.visible = false;
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 24;
+    mesh.userData.skipCharacterShadowFlags = true;
+    const d = new Object3D();
+    for (let i = 0; i < SPLAT_COUNT; i++) {
+      d.position.set(0, -80, 0);
+      d.scale.setScalar(0.001);
+      d.updateMatrix();
+      mesh.setMatrixAt(i, d.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    return mesh;
+  }, []);
+
+  const stainMeshTemplate = useMemo(() => {
+    const geom = new CircleGeometry(0.26, 13);
+    const mat = new MeshBasicMaterial({
+      color: STAIN_MATERIAL_COLOR,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -1,
+    });
+    const mesh = new InstancedMesh(geom, mat, STAIN_MAX);
+    mesh.frustumCulled = false;
+    mesh.renderOrder = 5;
+    mesh.userData.skipCharacterShadowFlags = true;
+    const d = new Object3D();
+    for (let i = 0; i < STAIN_MAX; i++) {
+      d.position.set(0, -500, 0);
+      d.scale.set(0.001, 0.001, 1);
+      d.updateMatrix();
+      mesh.setMatrixAt(i, d.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    return mesh;
+  }, []);
+
   useEffect(() => {
+    const mesh = splatMeshTemplate;
+    return () => {
+      mesh.geometry.dispose();
+      const m = mesh.material;
+      if (m && !Array.isArray(m)) m.dispose();
+    };
+  }, [splatMeshTemplate]);
+
+  useEffect(() => {
+    const mesh = stainMeshTemplate;
+    return () => {
+      mesh.geometry.dispose();
+      const m = mesh.material;
+      if (m && !Array.isArray(m)) m.dispose();
+    };
+  }, [stainMeshTemplate]);
+
+  useEffect(() => {
+    function typingTarget(t: EventTarget | null): boolean {
+      if (!t || !(t instanceof HTMLElement)) return false;
+      const tag = t.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || t.isContentEditable;
+    }
+
     function onKeyDown(event: KeyboardEvent) {
+      if (event.code === "Space" && !typingTarget(event.target)) {
+        if (burstPhaseRef.current === 0) {
+          event.preventDefault();
+        }
+        preloadOverloadFartAudio();
+      }
       pressedCodesRef.current[event.code] = true;
     }
 
@@ -260,19 +523,270 @@ export function PlayerAvatar({
 
   useLayoutEffect(() => {
     applyCharacterShadowFlags();
-  }, [hairInstanced]);
+  }, [hairInstanced, splatMeshTemplate]);
 
   useEffect(() => {
     applyCharacterShadowFlags();
-  }, [hairInstanced]);
+  }, [hairInstanced, splatMeshTemplate]);
 
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     const group = groupRef.current;
     if (!group) {
       return;
     }
 
     const keys = pressedCodesRef.current;
+    const phase = burstPhaseRef.current;
+
+    if (phase === 2) {
+      flightTimeRef.current += delta;
+      const ft = flightTimeRef.current;
+
+      flightVelYRef.current += FLIGHT_THRUST_Y * delta;
+      group.position.y += flightVelYRef.current * delta;
+      group.position.x += Math.sin(ft * 14.3) * 0.022 * delta;
+      group.position.z += Math.cos(ft * 11.7) * 0.022 * delta;
+      group.position.x = Math.max(-18.0, Math.min(18.0, group.position.x));
+      group.position.z = Math.max(-12.5, Math.min(9.5, group.position.z));
+
+      const cv = characterVisualRef.current;
+      if (cv) {
+        overloadSpinYRef.current += delta * 4.2;
+        cv.rotation.order = "YXZ";
+        cv.rotation.x = -Math.min(1.25, ft * 0.38) * 0.95;
+        cv.rotation.y = overloadSpinYRef.current;
+        cv.rotation.z = Math.sin(ft * 5.5) * 0.14;
+      }
+
+      const splatMesh = splatMeshRef.current ?? splatMeshTemplate;
+      const stainMesh = stainMeshRef.current ?? stainMeshTemplate;
+      const stainDummy = stainDummyRef.current;
+      const tw = tmpSplatWorldRef.current;
+      splatMesh.visible = true;
+      const dummy = splatDummyRef.current;
+      const life = splatLifeRef.current;
+      const px = splatPxRef.current;
+      const py = splatPyRef.current;
+      const pz = splatPzRef.current;
+      const vx = splatVxRef.current;
+      const vy = splatVyRef.current;
+      const vz = splatVzRef.current;
+
+      group.updateMatrixWorld(true);
+      const jetAlt = Math.max(0, group.position.y - FLOOR_Y);
+      underfootSludgeAccRef.current += delta;
+      while (underfootSludgeAccRef.current >= UNDERFOOT_SLUDGE_INTERVAL_JET) {
+        underfootSludgeAccRef.current -= UNDERFOOT_SLUDGE_INTERVAL_JET;
+        const tk = sludgeSpawnSeqRef.current++ + Math.floor(ft * 500);
+        stainWriteRef.current = spawnUnderfootSludgeBatch(
+          stainMesh,
+          stainDummy,
+          stainWriteRef.current,
+          group,
+          tk,
+          UNDERFOOT_SLUDGE_BATCH_JET,
+        );
+      }
+      for (let i = 0; i < SPLAT_COUNT; i++) {
+        if (life[i] > 0) {
+          vy[i] -= 5.5 * delta;
+          px[i] += vx[i] * delta;
+          py[i] += vy[i] * delta;
+          pz[i] += vz[i] * delta;
+          life[i] -= delta;
+        }
+
+        tw.set(px[i], py[i] + SPLAT_GROUP_LOCAL_Y, pz[i]);
+        group.localToWorld(tw);
+
+        if (tw.y <= FLOOR_Y + STAIN_FLOOR_HIT) {
+          stainWriteRef.current = commitFloorStain(
+            stainMesh,
+            stainDummy,
+            stainWriteRef.current,
+            tw.x,
+            tw.z,
+            i * 977 + Math.floor(ft * 80),
+          );
+          respawnSplatJet(i, ft, px, py, pz, vx, vy, vz, life, jetAlt);
+        } else if (life[i] <= 0) {
+          respawnSplatJet(i, ft, px, py, pz, vx, vy, vz, life, jetAlt);
+        }
+        const scl = 0.46 + (i % 11) * 0.13;
+        const wobble = 0.87 + Math.sin(ft * 14 + i * 0.61) * 0.16;
+        const elong = 0.5 + (i % 6) * 0.075;
+        dummy.position.set(px[i], py[i], pz[i]);
+        dummy.scale.set(scl * elong * wobble, scl * 0.55 * wobble, scl * (1.08 - elong * 0.2));
+        dummy.rotation.set(life[i] * 8 + i * 0.1, life[i] * 11 + ft * 4, life[i] * 6);
+        dummy.updateMatrix();
+        splatMesh.setMatrixAt(i, dummy.matrix);
+      }
+      splatMesh.instanceMatrix.needsUpdate = true;
+
+      onPositionChange([group.position.x, group.position.y, group.position.z]);
+      if (typeof onMotionChange === "function") {
+        onMotionChange({
+          position: [group.position.x, group.position.y, group.position.z],
+          moveDir: [0, 1, 0],
+          speed: flightVelYRef.current,
+          yaw: group.rotation.y,
+        });
+      }
+      return;
+    }
+
+    if (phase === 0) {
+      if (keys.Space) {
+        spaceChargeRef.current += delta;
+        if (spaceChargeRef.current >= SPACE_CHARGE_SEC) {
+          burstPhaseRef.current = 1;
+          overloadTimerRef.current = 0;
+          overloadSpinXRef.current = 0;
+          overloadSpinYRef.current = 0;
+          overloadSpinZRef.current = 0;
+          spaceChargeRef.current = 0;
+          playOverloadFartSound();
+          onOverloadStarted?.();
+          const sm = splatMeshRef.current ?? splatMeshTemplate;
+          sm.visible = true;
+        }
+      } else if (spaceChargeRef.current > 0 && spaceChargeRef.current < SPACE_CHARGE_SEC) {
+        spaceChargeRef.current = 0;
+      }
+    }
+
+    if (burstPhaseRef.current === 1) {
+      overloadTimerRef.current += delta;
+      const t = overloadTimerRef.current;
+
+      group.position.y = FLOOR_Y;
+      group.position.x = Math.max(-18.0, Math.min(18.0, group.position.x));
+      group.position.z = Math.max(-12.5, Math.min(9.5, group.position.z));
+
+      /** В кадре старта полёта не гоняем 160 брызг перегруза — тяжёлый hitch. */
+      if (t >= OVERLOAD_SEC) {
+        burstPhaseRef.current = 2;
+        flightVelYRef.current = FLIGHT_INITIAL_VY;
+        flightTimeRef.current = 0;
+        overloadSpinYRef.current = 0;
+
+        onPositionChange([group.position.x, group.position.y, group.position.z]);
+        if (typeof onMotionChange === "function") {
+          onMotionChange({
+            position: [group.position.x, group.position.y, group.position.z],
+            moveDir: lastMoveDirRef.current,
+            speed: 0,
+            yaw: group.rotation.y,
+          });
+        }
+        return;
+      }
+
+      const cv = characterVisualRef.current;
+      if (cv) {
+        /** Непрерывное вращение сразу вокруг X, Y и Z (разные скорости — «куб» вместо одной оси). */
+        overloadSpinXRef.current += delta * 6.4;
+        overloadSpinYRef.current += delta * 9.2;
+        overloadSpinZRef.current += delta * 7.1;
+        cv.rotation.order = "XYZ";
+        cv.rotation.set(overloadSpinXRef.current, overloadSpinYRef.current, overloadSpinZRef.current);
+      }
+
+      const spin = t * 30;
+      const legWild = 1.72;
+      const armWild = 1.58;
+      if (leftLegSwingRef.current) {
+        leftLegSwingRef.current.rotation.x = Math.sin(spin) * legWild;
+        leftLegSwingRef.current.rotation.z = Math.cos(spin * 1.1) * 0.62;
+      }
+      if (rightLegSwingRef.current) {
+        rightLegSwingRef.current.rotation.x = Math.sin(spin + 1.7) * legWild;
+        rightLegSwingRef.current.rotation.z = Math.cos(spin * 1.08 + 0.4) * 0.62;
+      }
+      if (leftArmSwingRef.current) {
+        leftArmSwingRef.current.rotation.x = Math.sin(spin * 1.3 + 0.5) * armWild;
+        leftArmSwingRef.current.rotation.z = Math.sin(spin * 0.9) * 0.68;
+      }
+      if (rightArmSwingRef.current) {
+        rightArmSwingRef.current.rotation.x = Math.sin(spin * 1.28 - 0.4) * armWild;
+        rightArmSwingRef.current.rotation.z = Math.cos(spin * 0.95) * 0.68;
+      }
+
+      const splatMesh = splatMeshRef.current ?? splatMeshTemplate;
+      const stainMesh = stainMeshRef.current ?? stainMeshTemplate;
+      const stainDummy = stainDummyRef.current;
+      const tw = tmpSplatWorldRef.current;
+      const dummy = splatDummyRef.current;
+      const life = splatLifeRef.current;
+      const px = splatPxRef.current;
+      const py = splatPyRef.current;
+      const pz = splatPzRef.current;
+      const vx = splatVxRef.current;
+      const vy = splatVyRef.current;
+      const vz = splatVzRef.current;
+
+      group.updateMatrixWorld(true);
+      underfootSludgeAccRef.current += delta;
+      while (underfootSludgeAccRef.current >= UNDERFOOT_SLUDGE_INTERVAL_OVERLOAD) {
+        underfootSludgeAccRef.current -= UNDERFOOT_SLUDGE_INTERVAL_OVERLOAD;
+        const tk = sludgeSpawnSeqRef.current++ + Math.floor(t * 400);
+        stainWriteRef.current = spawnUnderfootSludgeBatch(
+          stainMesh,
+          stainDummy,
+          stainWriteRef.current,
+          group,
+          tk,
+          UNDERFOOT_SLUDGE_BATCH_OVERLOAD,
+        );
+      }
+      for (let i = 0; i < SPLAT_COUNT; i++) {
+        if (life[i] > 0) {
+          vy[i] -= 8.5 * delta;
+          px[i] += vx[i] * delta;
+          py[i] += vy[i] * delta;
+          pz[i] += vz[i] * delta;
+          life[i] -= delta;
+        }
+
+        tw.set(px[i], py[i] + SPLAT_GROUP_LOCAL_Y, pz[i]);
+        group.localToWorld(tw);
+
+        if (tw.y <= FLOOR_Y + STAIN_FLOOR_HIT) {
+          stainWriteRef.current = commitFloorStain(
+            stainMesh,
+            stainDummy,
+            stainWriteRef.current,
+            tw.x,
+            tw.z,
+            i * 991 + Math.floor(t * 60),
+          );
+          respawnSplatOverload(i, t, px, py, pz, vx, vy, vz, life);
+        } else if (life[i] <= 0) {
+          respawnSplatOverload(i, t, px, py, pz, vx, vy, vz, life);
+        }
+        const scl = 0.52 + (i % 11) * 0.14;
+        const wobble = 0.86 + Math.sin(t * 15 + i * 0.58) * 0.17;
+        const elong = 0.51 + (i % 6) * 0.074;
+        dummy.position.set(px[i], py[i], pz[i]);
+        dummy.scale.set(scl * elong * wobble, scl * 0.57 * wobble, scl * (1.07 - elong * 0.19));
+        dummy.rotation.set(life[i] * 9 + i * 0.1, life[i] * 12 + t * 3, life[i] * 7);
+        dummy.updateMatrix();
+        splatMesh.setMatrixAt(i, dummy.matrix);
+      }
+      splatMesh.instanceMatrix.needsUpdate = true;
+
+      onPositionChange([group.position.x, group.position.y, group.position.z]);
+      if (typeof onMotionChange === "function") {
+        onMotionChange({
+          position: [group.position.x, group.position.y, group.position.z],
+          moveDir: lastMoveDirRef.current,
+          speed: 0,
+          yaw: group.rotation.y,
+        });
+      }
+      return;
+    }
+
     const comboRow = Boolean(keys.Digit6 && keys.Digit7);
     const comboNum = Boolean(keys.Numpad6 && keys.Numpad7);
     const combo = comboRow || comboNum;
@@ -406,22 +920,28 @@ export function PlayerAvatar({
     const chairArmAmp = 0.26;
     if (leftLegSwingRef.current) {
       leftLegSwingRef.current.rotation.x = wheelchairMode ? 0 : s * legAmp * walkB;
+      leftLegSwingRef.current.rotation.z = 0;
     }
     if (rightLegSwingRef.current) {
       rightLegSwingRef.current.rotation.x = wheelchairMode ? 0 : -s * legAmp * walkB;
+      rightLegSwingRef.current.rotation.z = 0;
     }
     if (leftArmSwingRef.current) {
       leftArmSwingRef.current.rotation.x = wheelchairMode ? s * chairArmAmp * chairB : -s * armAmp * walkB;
+      leftArmSwingRef.current.rotation.z = 0;
     }
     if (rightArmSwingRef.current) {
       rightArmSwingRef.current.rotation.x = wheelchairMode ? s * chairArmAmp * chairB : s * armAmp * walkB;
+      rightArmSwingRef.current.rotation.z = 0;
     }
   });
 
   return (
+    <>
     <group ref={groupRef} position={[1.2, FLOOR_Y, 0]}>
-      {/* --- Gojo silhouette: широкие плечи, V-торс, расклешённый хаори, не «овал с головой» --- */}
-      <group position={[0, 0, 0]}>
+      <group ref={characterVisualRef} position={[0, CHARACTER_SPIN_PIVOT_Y, 0]}>
+        <group position={[0, -CHARACTER_SPIN_PIVOT_Y, 0]}>
+        {/* --- Gojo silhouette: широкие плечи, V-торс, расклешённый хаори, не «овал с головой» --- */}
         {/* Низ плаща — уже снизу, чтобы ноги по бокам читались */}
         <mesh position={[0, 0.49, 0.01]} rotation={[0.03, 0, 0]}>
           <cylinderGeometry args={[0.13, 0.17, 0.3, 14]} />
@@ -783,7 +1303,14 @@ export function PlayerAvatar({
             polygonOffsetUnits={-1}
           />
         </mesh>
+        </group>
+      </group>
+      {/* Брызги вне вращающегося торса — иначе их закрывает плащ и они слишком мелкие в кадре. */}
+      <group position={[0, 0.22, 0]}>
+        <primitive ref={splatMeshRef} object={splatMeshTemplate} dispose={null} />
       </group>
     </group>
+    <primitive ref={stainMeshRef} object={stainMeshTemplate} dispose={null} />
+    </>
   );
 }

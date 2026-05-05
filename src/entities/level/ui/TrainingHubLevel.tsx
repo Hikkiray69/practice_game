@@ -784,16 +784,16 @@ function Bookshelf({ position, rotationY = 0 }: { position: [number, number, num
   return (
     <group position={position} rotation={[0, rotationY, 0]}>
       <mesh position={[0, 1.05, 0]}>
-        <boxGeometry args={[1.1, 2.1, 0.35]} />
+        <boxGeometry args={[1.1, 2.1, 0.25]} />
         <meshStandardMaterial color={ov.woodDeskDark} metalness={ov.metal.frame} roughness={ov.rough.wood} />
       </mesh>
-      {[-0.75, -0.25, 0.25, 0.75].map((yOff, i) => (
+      {[-1.57, -1.32, 1, -0.75, -0.5, -0.25, 0.25, 0.5, 0.75, 1, 1.32, 1.57].map((yOff, i) => (
         <mesh key={i} position={[0, yOff, 0.18]}>
           <boxGeometry args={[0.95, 0.04, 0.28]} />
           <meshStandardMaterial color={ov.ink} metalness={ov.metal.frame} roughness={0.8} />
         </mesh>
       ))}
-      {Array.from({ length: 18 }).map((_, i) => {
+      {Array.from({ length: 42 }).map((_, i) => {
         const x = -0.35 + (i % 6) * 0.14;
         const y = 0.35 + Math.floor(i / 6) * 0.22;
         const h = 0.16 + (i % 3) * 0.02;

@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
-import { Press_Start_2P } from "next/font/google";
+import { Archivo_Black, Press_Start_2P } from "next/font/google";
 import "./globals.css";
 
 const pixelFont = Press_Start_2P({
   weight: "400",
   subsets: ["latin", "cyrillic"],
   variable: "--font-pixel",
+});
+
+const overload67Display = Archivo_Black({
+  weight: "400",
+  subsets: ["latin"],
+  variable: "--font-overload67",
 });
 
 export const metadata: Metadata = {
@@ -20,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={pixelFont.variable}>{children}</body>
+      <body className={`${pixelFont.variable} ${overload67Display.variable}`}>{children}</body>
     </html>
   );
 }

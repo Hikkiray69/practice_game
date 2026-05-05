@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { VictoryStarFlightConfig } from "../model/victoryStarFlight";
+import { playGameUiSfx } from "@/shared/lib/gameUiSfx";
 import { MinigameVictoryDecor } from "./MinigameVictoryDecor";
 import { MinigameVictoryStarCelebration } from "./MinigameVictoryStarCelebration";
 
@@ -44,6 +45,22 @@ function ReactionCore({
 }) {
   const [game, setGame] = useState<Game>(initialGame);
   const spawnId = useRef(0);
+  const prevStatusRef = useRef(game.status);
+  const prevHitsRef = useRef(0);
+
+  useEffect(() => {
+    if (game.hits > prevHitsRef.current) {
+      playGameUiSfx("hit");
+    }
+    prevHitsRef.current = game.hits;
+  }, [game.hits]);
+
+  useEffect(() => {
+    if (prevStatusRef.current === "playing" && game.status === "lost") {
+      playGameUiSfx("miss");
+    }
+    prevStatusRef.current = game.status;
+  }, [game.status]);
 
   useEffect(() => {
     if (game.status !== "won") {
@@ -126,7 +143,7 @@ function ReactionCore({
           <MinigameVictoryDecor />
           {victoryStarFlight ? <MinigameVictoryStarCelebration {...victoryStarFlight} /> : null}
           <p className="miniGameOverlayText">
-            Поздравляем! Все цели пойманы — нажми «Продолжить к выбору в миссии» под полем миниигры.
+            Поздравляем! Все цели пойманы — нажми «Перейти к выбору в миссии» под полем миниигры.
           </p>
         </div>
       )}
@@ -135,10 +152,24 @@ function ReactionCore({
         <div className="miniGameOverlay">
           <p className="miniGameOverlayText">Три промаха — попробуй снова или пропусти.</p>
           <div className="dialogueActions">
-            <button type="button" className="button" onClick={onLostRetry}>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                playGameUiSfx("tap");
+                onLostRetry();
+              }}
+            >
               Переиграть
             </button>
-            <button type="button" className="button secondary" onClick={onSkip}>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => {
+                playGameUiSfx("tap");
+                onSkip();
+              }}
+            >
               Пропустить
             </button>
           </div>

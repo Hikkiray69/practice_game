@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { playGameUiSfx } from "@/shared/lib/gameUiSfx";
 import type { VictoryStarFlightConfig } from "../model/victoryStarFlight";
 import { MinigameVictoryDecor } from "./MinigameVictoryDecor";
 import { MinigameVictoryStarCelebration } from "./MinigameVictoryStarCelebration";
@@ -67,6 +68,22 @@ function SnakeCore({
   victoryStarFlight?: VictoryStarFlightConfig;
 }) {
   const [game, setGame] = useState<GameState>(createInitial);
+  const prevEatenRef = useRef(game.eaten);
+  const prevStatusRef = useRef(game.status);
+
+  useEffect(() => {
+    if (game.status === "playing" && game.eaten > prevEatenRef.current) {
+      playGameUiSfx("pickup");
+    }
+    prevEatenRef.current = game.eaten;
+  }, [game.eaten, game.status]);
+
+  useEffect(() => {
+    if (prevStatusRef.current === "playing" && game.status === "lost") {
+      playGameUiSfx("miss");
+    }
+    prevStatusRef.current = game.status;
+  }, [game.status]);
 
   useEffect(() => {
     if (game.status !== "won") {
@@ -295,7 +312,7 @@ function SnakeCore({
           <MinigameVictoryDecor />
           {victoryStarFlight ? <MinigameVictoryStarCelebration {...victoryStarFlight} /> : null}
           <p className="miniGameOverlayText">
-            Поздравляем! Ты собрал все яблоки — нажми «Продолжить к выбору в миссии» под полем миниигры.
+            Поздравляем! Ты собрал все яблоки — нажми «Перейти к выбору в миссии» под полем миниигры.
           </p>
         </div>
       )}
@@ -304,10 +321,24 @@ function SnakeCore({
         <div className="miniGameOverlay">
           <p className="miniGameOverlayText">Столкновение — попробуй ещё раз или пропусти.</p>
           <div className="dialogueActions">
-            <button type="button" className="button" onClick={onLostRetry}>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                playGameUiSfx("tap");
+                onLostRetry();
+              }}
+            >
               Переиграть
             </button>
-            <button type="button" className="button secondary" onClick={onSkip}>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => {
+                playGameUiSfx("tap");
+                onSkip();
+              }}
+            >
               Пропустить
             </button>
           </div>

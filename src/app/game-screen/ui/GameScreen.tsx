@@ -5,9 +5,12 @@ import type { VictoryStarFlightConfig } from "@/features/mission-minigame";
 import { useMission } from "@/features/quest-system";
 import { Hud } from "@/features/scoring-progress";
 import { fetchAiAssist } from "@/shared/api/aiClient";
+import { startGameBgm, stopGameBgm, setGameBgmMode, type GameBgmMode } from "@/shared/lib/gameBgm";
+import { resumeGameUiAudio } from "@/shared/lib/gameUiSfx";
 import { cleanAiAssistForDisplay } from "@/shared/lib/validateAiOutput";
+import { GameAudioMuteButton } from "@/shared/ui/GameAudioMuteButton";
 import { SceneCanvas } from "@/shared/ui";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export function GameScreen() {
   const [npcInteracted, setNpcInteracted] = useState(false);
@@ -81,6 +84,54 @@ export function GameScreen() {
         ? "Прозрачность"
         : "Скорость";
 
+  const inMissionFlow =
+    npcInteracted || status === "inProgress" || status === "completed";
+
+  const minigameActive =
+    status === "inProgress" &&
+    preambleDone &&
+    !choicesUnlocked &&
+    Boolean(mission.minigameId);
+
+  const bgmMode: GameBgmMode =
+    isCampaignFinished && showCampaignSummary
+      ? "explore"
+      : minigameActive
+        ? "minigame"
+        : inMissionFlow
+          ? "mission"
+          : "explore";
+
+  const bgmModeRef = useRef(bgmMode);
+  bgmModeRef.current = bgmMode;
+
+  useEffect(() => {
+    setGameBgmMode(bgmMode);
+  }, [bgmMode]);
+
+  useEffect(() => {
+    const root = document.querySelector<HTMLElement>(".gameRoot");
+    let armed = true;
+    const wake = () => {
+      if (!armed) return;
+      armed = false;
+      void startGameBgm(bgmModeRef.current);
+    };
+    root?.addEventListener("pointerdown", wake, { passive: true });
+    window.addEventListener("keydown", wake, { passive: true });
+    void resumeGameUiAudio().then((c) => {
+      if (c?.state === "running") {
+        wake();
+      }
+    });
+    return () => {
+      armed = false;
+      root?.removeEventListener("pointerdown", wake);
+      window.removeEventListener("keydown", wake);
+      stopGameBgm();
+    };
+  }, []);
+
   async function handleAskAiAssist() {
     setAiLoading(true);
     try {
@@ -96,6 +147,7 @@ export function GameScreen() {
 
   return (
     <main className="gameRoot">
+      <GameAudioMuteButton />
       <SceneCanvas
         activeNpcId={requiredNpcId}
         onNpcInteract={(npcId) => {

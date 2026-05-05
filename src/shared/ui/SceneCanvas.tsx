@@ -1,13 +1,14 @@
 "use client";
 
 import { Canvas } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { PlayerAvatar } from "@/features/movement";
 import { NpcActor } from "@/entities/npc";
 import { useFrame, useThree } from "@react-three/fiber";
 import { TrainingHubLevel } from "@/entities/level";
 import { InteractionPrompt } from "@/features/interaction-prompt";
+import { playGameUiSfx } from "@/shared/lib/gameUiSfx";
 import { TargetNpcInRangeRefContext } from "@/shared/ui/targetNpcInRangeContext";
 import { PCFShadowMap, Vector3 } from "three";
 
@@ -166,6 +167,12 @@ function SceneObjects({ activeNpcId, coarsePointer }: { activeNpcId: string; coa
   );
 }
 
+/** Высота камеры над полом при игроке на `y = -0.8` (см. `PlayerAvatar` FLOOR_Y). */
+const PLAYER_FLOOR_Y = -0.8;
+const CAMERA_WORLD_Y_AT_FLOOR_PLAYER = 4.6;
+const CAMERA_Y_OFFSET_ABOVE_PLAYER = CAMERA_WORLD_Y_AT_FLOOR_PLAYER - PLAYER_FLOOR_Y;
+const LOOK_Y_OFFSET_ABOVE_PLAYER = 1.0 - PLAYER_FLOOR_Y;
+
 function FollowCamera({
   targetRef,
   moveDirRef,
@@ -229,7 +236,6 @@ function FollowCamera({
 
     // 2) Орбита камеры — только фиксированный yaw 45° (стрейф орбиту не крутит).
     const behindDistance = 6.2;
-    const up = 4.6;
 
     const yaw = Math.PI / 4;
     const cos = Math.cos(yaw);
@@ -240,7 +246,7 @@ function FollowCamera({
     cam.desiredPos.set(target[0], target[1], target[2]);
     cam.desiredPos.x += bx * behindDistance;
     cam.desiredPos.z += bz * behindDistance;
-    cam.desiredPos.y = up;
+    cam.desiredPos.y = target[1] + CAMERA_Y_OFFSET_ABOVE_PLAYER;
 
     // 3) Точка взгляда: база у головы ГГ + сдвиг только по стрейфу (экран влево/вправо) — открывается обзор, позиция камеры та же.
     const moveLen = Math.hypot(moveDir[0], moveDir[2]);
@@ -271,7 +277,7 @@ function FollowCamera({
     cam.tmpTarget.set(tx, 0, tz);
     smoothDampVec3(cam.lookStrafeOffset, cam.tmpTarget, cam.lookStrafeVel, 0.28, delta);
 
-    cam.desiredLook.set(target[0], 1.0, target[2]);
+    cam.desiredLook.set(target[0], target[1] + LOOK_Y_OFFSET_ABOVE_PLAYER, target[2]);
     cam.desiredLook.addScaledVector(forward, 0.22);
     cam.desiredLook.x += cam.lookStrafeOffset.x;
     cam.desiredLook.z += cam.lookStrafeOffset.z;
@@ -284,6 +290,7 @@ function FollowCamera({
 
     // Keep lookAt also smooth to avoid snapping on sudden turns.
     smoothDampVec3(cam.currentLook, cam.desiredLook, cam.lookVel, lookSmooth, delta);
+
     camera.lookAt(cam.currentLook);
   });
   return null;
@@ -300,7 +307,46 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
   const promptDockRef = useRef<HTMLDivElement | null>(null);
   const interactBtnRef = useRef<HTMLButtonElement | null>(null);
   const [isCoarsePointer, setIsCoarsePointer] = useState(false);
+  const [showOverload67, setShowOverload67] = useState(false);
+  const overload67TimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const OVERLOAD_67_DELAY_MS = 8600;
+
+  const scheduleOverload67Overlay = useCallback(() => {
+    if (overload67TimerRef.current != null) {
+      clearTimeout(overload67TimerRef.current);
+    }
+    overload67TimerRef.current = setTimeout(() => {
+      setShowOverload67(true);
+      overload67TimerRef.current = null;
+    }, OVERLOAD_67_DELAY_MS);
+  }, []);
+
+  const dismissOverload67 = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.location.reload();
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (overload67TimerRef.current != null) {
+        clearTimeout(overload67TimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showOverload67) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code === "Escape") {
+        e.preventDefault();
+        dismissOverload67();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showOverload67, dismissOverload67]);
   const collisionBoxes = useMemo(() => {
     function boxFromCenterSize(
       center: [number, number, number],
@@ -360,6 +406,7 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
     function onKeyDown(event: KeyboardEvent) {
       if (event.code !== "KeyE") return;
       if (!targetNpcInRangeRef.current) return;
+      playGameUiSfx("npcChat");
       onNpcInteract(activeNpcIdRef.current);
     }
 
@@ -403,6 +450,7 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
             }}
             collisionBoxes={collisionBoxes}
             virtualInputRef={virtualInputRef}
+            onOverloadStarted={scheduleOverload67Overlay}
             onMotionChange={(motion) => {
               playerMoveDirRef.current = motion.moveDir;
             }}
@@ -410,6 +458,25 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
           <FollowCamera targetRef={playerPosRef} moveDirRef={playerMoveDirRef} />
         </TargetNpcInRangeRefContext.Provider>
       </Canvas>
+
+      {showOverload67 ? (
+        <div
+          className="overload67Overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="67"
+          onClick={dismissOverload67}
+        >
+          <div className="overload67Burst" aria-hidden />
+          <div className="overload67DigitWrap">
+            <span className="overload67DigitShadow" aria-hidden>
+              67
+            </span>
+            <span className="overload67Digit">67</span>
+          </div>
+          <p className="overload67Hint">клик или Esc — перезапуск игры</p>
+        </div>
+      ) : null}
 
       <div className="topHint">
         <div className="hintPill">WASD/стрелки: движение</div>
@@ -467,9 +534,9 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
             ref={interactBtnRef}
             className="interactBtn"
             type="button"
-            disabled
             onClick={() => {
               if (!targetNpcInRangeRef.current) return;
+              playGameUiSfx("npcChat");
               onNpcInteract(activeNpcIdRef.current);
             }}
           >

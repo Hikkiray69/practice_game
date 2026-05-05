@@ -185,22 +185,23 @@ function NpcActorImpl({ name, role, position, accent, highlight = false, coarseP
       >
         <div
           style={{
-            padding: "6px 8px",
+            padding: "8px 10px",
             borderRadius: 10,
             border: `1px solid ${highlight ? "rgba(167,139,250,0.55)" : "rgba(148,163,184,0.25)"}`,
             background: "rgba(9,14,28,0.6)",
             color: "#e2e8f0",
             fontSize: 12,
+            lineHeight: 1.4,
             whiteSpace: "nowrap",
             ...(coarsePointer ? {} : { backdropFilter: "blur(6px)" }),
           }}
         >
-          <div style={{ fontWeight: 700 }}>{name}</div>
-          <div style={{ opacity: 0.8 }}>{role}</div>
+          <div style={{ fontWeight: 700, lineHeight: 1.35 }}>{name}</div>
+          <div style={{ opacity: 0.8, lineHeight: 1.45, marginTop: 4 }}>{role}</div>
           <div
             ref={readyLineRef}
             style={{
-              marginTop: 4,
+              marginTop: 5,
               opacity: 0,
               maxHeight: 0,
               overflow: "hidden",

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { VictoryStarFlightConfig } from "../model/victoryStarFlight";
+import { playGameUiSfx } from "@/shared/lib/gameUiSfx";
 import { MinigameVictoryDecor } from "./MinigameVictoryDecor";
 import { MinigameVictoryStarCelebration } from "./MinigameVictoryStarCelebration";
 
@@ -59,6 +60,14 @@ function MemoryRound({
     onVictoryUi();
   }, [allMatched, onHudOutcome, onVictoryUi]);
 
+  const prevLostRef = useRef(false);
+  useEffect(() => {
+    if (lost && !prevLostRef.current) {
+      playGameUiSfx("miss");
+    }
+    prevLostRef.current = lost;
+  }, [lost]);
+
   useEffect(() => {
     if (lost || allMatched) {
       return;
@@ -87,17 +96,20 @@ function MemoryRound({
       const next = [...flipped, slot];
       setFlipped(next);
       if (next.length !== 2) {
+        playGameUiSfx("tap");
         return;
       }
       const [i1, i2] = next;
       const ca = cards.find((c) => c.slot === i1);
       const cb = cards.find((c) => c.slot === i2);
       if (ca && cb && ca.pairId === cb.pairId) {
+        playGameUiSfx("pickup");
         window.setTimeout(() => {
           setMatched((prev) => new Set([...prev, i1, i2]));
           setFlipped([]);
         }, 380);
       } else {
+        playGameUiSfx("mismatch");
         window.setTimeout(() => setFlipped([]), 650);
       }
     },
@@ -136,7 +148,14 @@ function MemoryRound({
             За {MEMORY_TIME_SEC} секунд не успели открыть все пары. Карты перетасованы — попробуйте снова.
           </p>
           <div className="dialogueActions single">
-            <button type="button" className="button" onClick={onRetry}>
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                playGameUiSfx("tap");
+                onRetry();
+              }}
+            >
               Попробовать снова
             </button>
           </div>
@@ -148,7 +167,7 @@ function MemoryRound({
           <MinigameVictoryDecor />
           {victoryStarFlight ? <MinigameVictoryStarCelebration {...victoryStarFlight} /> : null}
           <p className="miniGameOverlayText">
-            Поздравляем! Все пары найдены — нажми «Продолжить к выбору в миссии» под полем миниигры.
+            Поздравляем! Все пары найдены — нажми «Перейти к выбору в миссии» под полем миниигры.
           </p>
         </div>
       )}

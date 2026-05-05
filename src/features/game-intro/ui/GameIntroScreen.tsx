@@ -1,5 +1,7 @@
 "use client";
 
+import { playGameUiSfx } from "@/shared/lib/gameUiSfx";
+
 export function GameIntroScreen({ onStart }: { onStart: () => void }) {
   return (
     <div className="gameIntroRoot" lang="ru" role="document" aria-label="Экран приветствия SOC Training Hub">
@@ -45,7 +47,7 @@ export function GameIntroScreen({ onStart }: { onStart: () => void }) {
             </h2>
             <ul className="gameIntroList">
               <li>
-                <kbd className="gameIntroKbd">WASD</kbd> или стрелки — движение по хабу.
+                <kbd className="gameIntroKbd">WASD</kbd>, стрелки или джойстик на телефоне — движение по хабу.
               </li>
               <li>
                 Подойди к наставнику в зоне миссии и нажми <kbd className="gameIntroKbd">E</kbd>.
@@ -57,7 +59,14 @@ export function GameIntroScreen({ onStart }: { onStart: () => void }) {
         </div>
 
         <footer className="gameIntroFooter">
-          <button type="button" className="gameIntroStart" onClick={onStart}>
+          <button
+            type="button"
+            className="gameIntroStart"
+            onClick={() => {
+              playGameUiSfx("confirm");
+              onStart();
+            }}
+          >
             Начать
           </button>
           <p className="gameIntroFootnote">Учебный прототип · решения в игре не равны корпоративным инструкциям</p>
