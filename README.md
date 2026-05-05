@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SOC Training Hub (practice_game)
 
-## Getting Started
+Интерактивный 3D-тренажёр (Next.js + react-three-fiber) с миссиями, NPC-диалогами, минииграми и системой последствий выбора.
 
-First, run the development server:
+Миссии отражают ценности:
+- **Ответственность**
+- **Прозрачность**
+- **Скорость**
+
+## Запуск
+
+Требования: **Node.js 18+**.
 
 ```bash
+cd practice_game
+npm i
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Открыть приложение: `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Сборка
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+cd practice_game
+npm run build
+npm run start
+```
 
-## Learn More
+## Управление
 
-To learn more about Next.js, take a look at the following resources:
+- **ПК**: WASD/стрелки — движение, **E** — взаимодействие с NPC.
+- **Мобилка**: виртуальный джойстик — движение, кнопка **E** — взаимодействие.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Звук
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- UI/миниигры/взаимодействия: процедурные SFX через Web Audio (`src/shared/lib/gameUiSfx.ts`).
+- Фоновая музыка: процедурный BGM с режимами `explore` / `mission` / `minigame` (`src/shared/lib/gameBgm.ts`).
+- Кнопка **Mute**: иконка динамика в левом верхнем углу, состояние сохраняется в `localStorage` (`gameAudioMuted`).
 
-## Deploy on Vercel
+## AI ассист (диалог/подсказки)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Игра умеет запрашивать подсказки через API-роут:
+- `src/app/api/ai/assist/route.ts`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Важно: вывод AI валидируется/очищается перед показом в UI (`src/shared/lib/validateAiOutput.ts`). Если AI недоступен — основной флоу не должен ломаться.
+
+## Структура (FSD)
+
+Проект следует Feature-Sliced Design:
+
+```text
+src/
+  app/        # Next.js App Router, глобальные стили/лейауты
+  features/   # фичи: движение, диалоги, миниигры, интро и т.п.
+  entities/   # сущности: quest, npc, level
+  shared/     # общий UI, lib, константы, утилиты
+```
+
+## Где что лежит (быстрые ссылки)
+
+- **Экран игры**: `src/app/game-screen/ui/GameScreen.tsx`
+- **3D сцена**: `src/shared/ui/SceneCanvas.tsx`
+- **NPC**: `src/entities/npc/ui/NpcActor.tsx`
+- **Диалоги/выборы**: `src/features/dialogue/ui/DialoguePanel.tsx`
+- **Миниигры**: `src/features/mission-minigame/ui/*`
+
+## Примечания по UX/адаптиву
+
+- Для коротких экранов (landscape) диалоги скроллятся внутри панели, миниигры ужимаются по высоте (`src/app/globals.css`).
+
