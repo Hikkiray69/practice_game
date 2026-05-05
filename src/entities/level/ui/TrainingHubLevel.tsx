@@ -897,7 +897,7 @@ function SunDirectional() {
     if (!L) return;
 
     L.castShadow = true;
-    L.shadow.mapSize.set(2048, 2048);
+    L.shadow.mapSize.set(1024, 1024);
     L.shadow.bias = 0;
     L.shadow.normalBias = DEBUG_OVERHEAD_SUN ? 0.004 : 0.008;
     const cam = L.shadow.camera;
@@ -1152,7 +1152,7 @@ export function TrainingHubLevel() {
 
       </LevelShadowGroup>
 
-      <Environment preset="city" environmentIntensity={ov.environmentIntensity} />
+      <Environment preset="city" environmentIntensity={ov.environmentIntensity} resolution={128} />
     </>
   );
 }

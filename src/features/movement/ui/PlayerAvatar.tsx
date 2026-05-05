@@ -3,7 +3,19 @@
 import { useFrame } from "@react-three/fiber";
 import { useThree } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { DoubleSide, Euler, Group, Mesh, Quaternion, Vector3 } from "three";
+import type { MutableRefObject } from "react";
+import {
+  ConeGeometry,
+  DoubleSide,
+  Euler,
+  Group,
+  InstancedMesh,
+  Mesh,
+  MeshStandardMaterial,
+  Object3D,
+  Quaternion,
+  Vector3,
+} from "three";
 import { defaultMovementConfig } from "@/features/movement/model/types";
 import { createFabricNoiseTexture } from "@/shared/lib/threeTextures";
 
@@ -24,6 +36,8 @@ interface PlayerAvatarProps {
     min: [number, number, number];
     max: [number, number, number];
   }>;
+  /** Состояние джойстика без setState каждый кадр — читается в useFrame. */
+  virtualInputRef?: MutableRefObject<{ x: number; z: number } | null>;
   virtualInput?: { x: number; z: number } | null;
   onMotionChange?: (motion: {
     position: [number, number, number];
@@ -33,7 +47,13 @@ interface PlayerAvatarProps {
   }) => void;
 }
 
-export function PlayerAvatar({ onPositionChange, onMotionChange, collisionBoxes, virtualInput }: PlayerAvatarProps) {
+export function PlayerAvatar({
+  onPositionChange,
+  onMotionChange,
+  collisionBoxes,
+  virtualInput,
+  virtualInputRef,
+}: PlayerAvatarProps) {
   const { camera } = useThree();
   const groupRef = useRef<Group>(null);
   const legsGroupRef = useRef<Group>(null);
@@ -88,7 +108,7 @@ export function PlayerAvatar({ onPositionChange, onMotionChange, collisionBoxes,
       const v = Math.sin(s * 39.4231 + 11.7) * 31415.9265;
       const fx = u - Math.floor(u);
       const fy = v - Math.floor(v);
-      const spread = 1;
+      const spread = 0.34;
       dir.set((fx - 0.5) * spread, 1, (fy - 0.5) * spread).normalize();
       q.setFromUnitVectors(up, dir);
       e.setFromQuaternion(q, "YXZ");
@@ -102,8 +122,8 @@ export function PlayerAvatar({ onPositionChange, onMotionChange, collisionBoxes,
       if (inner <= 0.0015) return;
       const rr = Math.sqrt(inner);
       const arc = 2 * Math.PI * Math.max(sx, sz) * rr;
-      const spacing = 0.021;
-      const count = Math.max(18, Math.ceil(arc / spacing) + (yi % 2));
+      const spacing = 0.026;
+      const count = Math.max(14, Math.ceil(arc / spacing) + (yi % 2));
 
       for (let i = 0; i < count; i++) {
         const theta = (i / count) * Math.PI * 2 + yi * 0.11;
@@ -115,8 +135,8 @@ export function PlayerAvatar({ onPositionChange, onMotionChange, collisionBoxes,
       }
     };
 
-    const ySteps = 15;
-    const dy = 0.0092;
+    const ySteps = 12;
+    const dy = 0.01;
     for (let yi = 0; yi < ySteps; yi++) {
       const ySurf = yMin + yi * dy;
       ringAtY(ySurf, yi);
@@ -141,6 +161,47 @@ export function PlayerAvatar({ onPositionChange, onMotionChange, collisionBoxes,
     return out;
   }, []);
 
+  const hairBaseR = 0.022;
+  const hairBaseH = 0.072;
+  const hairInstanced = useMemo(() => {
+    const count = hairCones.length;
+    if (count === 0) return null;
+    const geom = new ConeGeometry(hairBaseR, hairBaseH, 5);
+    const mat = new MeshStandardMaterial({
+      map: hairTex,
+      color: "#f2f6fc",
+      roughness: 0.64,
+      metalness: 0.03,
+    });
+    const mesh = new InstancedMesh(geom, mat, count);
+    mesh.castShadow = false;
+    mesh.receiveShadow = false;
+    const dummy = new Object3D();
+    for (let i = 0; i < count; i++) {
+      const c = hairCones[i];
+      dummy.position.set(c.pos[0], c.pos[1], c.pos[2]);
+      dummy.rotation.set(c.rot[0], c.rot[1], c.rot[2]);
+      dummy.scale.set(c.r / hairBaseR, c.h / hairBaseH, c.r / hairBaseR);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.userData.skipCharacterShadowFlags = true;
+    return mesh;
+  }, [hairCones, hairTex]);
+
+  useEffect(() => {
+    const mesh = hairInstanced;
+    if (!mesh) return;
+    return () => {
+      mesh.geometry.dispose();
+      const m = mesh.material;
+      if (m && !Array.isArray(m)) {
+        m.dispose();
+      }
+    };
+  }, [hairInstanced]);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       pressedCodesRef.current[event.code] = true;
@@ -164,6 +225,11 @@ export function PlayerAvatar({ onPositionChange, onMotionChange, collisionBoxes,
     if (!root) return;
     root.traverse((obj) => {
       if (!(obj instanceof Mesh)) return;
+      if ((obj.userData as { skipCharacterShadowFlags?: boolean }).skipCharacterShadowFlags) {
+        obj.castShadow = false;
+        obj.receiveShadow = false;
+        return;
+      }
       const mat = obj.material;
       const mats = Array.isArray(mat) ? mat : mat ? [mat] : [];
       const skipCast = mats.some(
@@ -182,11 +248,11 @@ export function PlayerAvatar({ onPositionChange, onMotionChange, collisionBoxes,
 
   useLayoutEffect(() => {
     applyCharacterShadowFlags();
-  }, []);
+  }, [hairInstanced]);
 
   useEffect(() => {
     applyCharacterShadowFlags();
-  }, []);
+  }, [hairInstanced]);
 
   useFrame((state, delta) => {
     const group = groupRef.current;
@@ -209,8 +275,9 @@ export function PlayerAvatar({ onPositionChange, onMotionChange, collisionBoxes,
 
     const kbX = (keys.KeyA || keys.ArrowLeft ? -1 : 0) + (keys.KeyD || keys.ArrowRight ? 1 : 0);
     const kbZ = (keys.KeyW || keys.ArrowUp ? 1 : 0) + (keys.KeyS || keys.ArrowDown ? -1 : 0);
-    const inputX = typeof virtualInput?.x === "number" ? virtualInput.x : kbX;
-    const inputZ = typeof virtualInput?.z === "number" ? virtualInput.z : kbZ;
+    const stick = virtualInputRef?.current ?? virtualInput ?? null;
+    const inputX = typeof stick?.x === "number" ? stick.x : kbX;
+    const inputZ = typeof stick?.z === "number" ? stick.z : kbZ;
 
     // Move relative to camera (projected onto XZ plane)
     const forward = tmpForwardRef.current;
@@ -643,13 +710,8 @@ export function PlayerAvatar({ onPositionChange, onMotionChange, collisionBoxes,
           />
         </mesh>
 
-        {/* Волосы: конусы над повязкой, слегка разный наклон у каждого */}
-        {hairCones.map((c, i) => (
-          <mesh key={i} position={c.pos} rotation={c.rot}>
-            <coneGeometry args={[c.r, c.h, 7]} />
-            <meshStandardMaterial map={hairTex} color="#f2f6fc" roughness={0.64} metalness={0.03} />
-          </mesh>
-        ))}
+        {/* Волосы: один InstancedMesh вместо сотен draw calls */}
+        {hairInstanced ? <primitive object={hairInstanced} dispose={null} /> : null}
 
         {/*
           Повязка: открытый цилиндр (только боковая поверхность) — непрерывное кольцо, без «двух коробок».

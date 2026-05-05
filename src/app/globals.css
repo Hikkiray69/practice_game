@@ -1118,6 +1118,30 @@ a {
   min-width: min(520px, calc(100vw - 32px));
 }
 
+/* Всегда в DOM: видимость только классом (без React mount — меньше лагов у NPC). */
+.aaaPrompt.aaaPrompt--docked {
+  animation: none;
+}
+.aaaPrompt.aaaPrompt--docked.aaaPrompt--dockedHidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.aaaPrompt.aaaPrompt--docked:not(.aaaPrompt--dockedHidden) {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: none;
+}
+@media (pointer: coarse) {
+  .aaaPrompt.aaaPrompt--docked {
+    backdrop-filter: none;
+  }
+}
+
+.aaaPrompt.aaaPrompt--docked.aaaPrompt--dockedHidden .aaaPromptSheen {
+  animation: none;
+}
+
 .aaaPromptKeycap {
   width: 40px;
   height: 40px;

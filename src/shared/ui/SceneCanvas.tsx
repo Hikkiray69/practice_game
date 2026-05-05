@@ -2,11 +2,13 @@
 
 import { Canvas } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { MutableRefObject } from "react";
 import { PlayerAvatar } from "@/features/movement";
 import { NpcActor } from "@/entities/npc";
 import { useFrame, useThree } from "@react-three/fiber";
 import { TrainingHubLevel } from "@/entities/level";
 import { InteractionPrompt } from "@/features/interaction-prompt";
+import { TargetNpcInRangeRefContext } from "@/shared/ui/targetNpcInRangeContext";
 import { PCFShadowMap, Vector3 } from "three";
 
 interface SceneCanvasProps {
@@ -71,18 +73,82 @@ const NPCS = [
   },
 ] as const;
 
-function SceneObjects({ playerPosition, activeNpcId }: { playerPosition: [number, number, number]; activeNpcId: string }) {
+/** Гистерезис: выход чуть дальше входа → реже переключение у границы 1.9. */
+const NPC_RANGE_ENTER = 1.9;
+const NPC_RANGE_LEAVE = 2.06;
+
+/** Дистанция + DOM плашки/кнопки без setState — только refs и classList. */
+function NpcProximityR3f({
+  playerPosRef,
+  activeNpcIdRef,
+  targetNpcInRangeRef,
+  activeNpcId,
+  promptRef,
+  interactBtnRef,
+}: {
+  playerPosRef: MutableRefObject<[number, number, number]>;
+  activeNpcIdRef: MutableRefObject<string>;
+  targetNpcInRangeRef: MutableRefObject<boolean>;
+  activeNpcId: string;
+  promptRef: MutableRefObject<HTMLDivElement | null>;
+  interactBtnRef: MutableRefObject<HTMLButtonElement | null>;
+}) {
+  const hysteresisRef = useRef(false);
+  const lastDomRef = useRef<boolean | null>(null);
+
+  function syncDom(near: boolean) {
+    const el = promptRef.current;
+    if (el) {
+      el.classList.toggle("aaaPrompt--dockedHidden", !near);
+      el.setAttribute("aria-hidden", near ? "false" : "true");
+    }
+    const btn = interactBtnRef.current;
+    if (btn) btn.disabled = !near;
+  }
+
+  useEffect(() => {
+    hysteresisRef.current = false;
+    targetNpcInRangeRef.current = false;
+    lastDomRef.current = null;
+    const el = promptRef.current;
+    if (el) {
+      el.classList.add("aaaPrompt--dockedHidden");
+      el.setAttribute("aria-hidden", "true");
+    }
+    const btn = interactBtnRef.current;
+    if (btn) btn.disabled = true;
+  }, [activeNpcId, interactBtnRef, promptRef, targetNpcInRangeRef]);
+
+  useFrame(() => {
+    const p = playerPosRef.current;
+    const id = activeNpcIdRef.current;
+    const npc = NPCS.find((n) => n.id === id) ?? NPCS[0];
+    const d = Math.hypot(p[0] - npc.position[0], p[2] - npc.position[2]);
+    let inRange = hysteresisRef.current;
+    if (inRange) {
+      if (d > NPC_RANGE_LEAVE) inRange = false;
+    } else {
+      if (d <= NPC_RANGE_ENTER) inRange = true;
+    }
+    hysteresisRef.current = inRange;
+    targetNpcInRangeRef.current = inRange;
+
+    if (lastDomRef.current !== inRange) {
+      lastDomRef.current = inRange;
+      syncDom(inRange);
+    }
+  });
+
+  return null;
+}
+
+function SceneObjects({ activeNpcId, coarsePointer }: { activeNpcId: string; coarsePointer: boolean }) {
   return (
     <>
       <TrainingHubLevel />
 
-      {/* NPCs */}
       {NPCS.map((npc) => {
-        const dx = playerPosition[0] - npc.position[0];
-        const dz = playerPosition[2] - npc.position[2];
-        const distance = Math.sqrt(dx * dx + dz * dz);
         const isTarget = npc.id === activeNpcId;
-        const canInteract = distance <= 1.9 && isTarget;
         return (
           <NpcActor
             key={npc.id}
@@ -92,7 +158,7 @@ function SceneObjects({ playerPosition, activeNpcId }: { playerPosition: [number
             position={npc.position}
             accent={npc.accent}
             highlight={isTarget}
-            active={canInteract}
+            coarsePointer={coarsePointer}
           />
         );
       })}
@@ -101,30 +167,26 @@ function SceneObjects({ playerPosition, activeNpcId }: { playerPosition: [number
 }
 
 function FollowCamera({
-  target,
-  moveDir,
+  targetRef,
+  moveDirRef,
 }: {
-  target: [number, number, number];
-  moveDir: [number, number, number];
+  targetRef: MutableRefObject<[number, number, number]>;
+  moveDirRef: MutableRefObject<[number, number, number]>;
 }) {
   const { camera } = useThree();
-  const state = useMemo(() => {
-    return {
-      // persistent state for smooth-damping
-      camVel: new Vector3(0, 0, 0),
-      lookVel: new Vector3(0, 0, 0),
-      /** Смещение точки взгляда (XZ) в сторону стрейфа — орбита камеры не трогается. */
-      lookStrafeOffset: new Vector3(0, 0, 0),
-      lookStrafeVel: new Vector3(0, 0, 0),
-      currentLook: new Vector3(0, 1.0, 0),
-      baseForward: new Vector3(0, 0, -1), // fixed yaw (no drift)
-      desiredPos: new Vector3(),
-      desiredLook: new Vector3(),
-      tmpBehind: new Vector3(),
-      tmpTarget: new Vector3(),
-      camFlatFwd: new Vector3(0, 0, -1),
-    };
-  }, []);
+  const camStoreRef = useRef({
+    camVel: new Vector3(0, 0, 0),
+    lookVel: new Vector3(0, 0, 0),
+    lookStrafeOffset: new Vector3(0, 0, 0),
+    lookStrafeVel: new Vector3(0, 0, 0),
+    currentLook: new Vector3(0, 1.0, 0),
+    baseForward: new Vector3(0, 0, -1),
+    desiredPos: new Vector3(),
+    desiredLook: new Vector3(),
+    tmpBehind: new Vector3(),
+    tmpTarget: new Vector3(),
+    camFlatFwd: new Vector3(0, 0, -1),
+  });
 
   function smoothDampVec3(
     current: Vector3,
@@ -157,11 +219,13 @@ function FollowCamera({
   }
 
   useFrame((_, delta) => {
-    /* eslint-disable react-hooks/immutability */
+    const cam = camStoreRef.current;
+    const target = targetRef.current;
+    const moveDir = moveDirRef.current;
     // IMPORTANT: movement is camera-relative, so we keep camera yaw FIXED here.
     // Otherwise you get a slow drift and the character starts moving in an arc.
-    const forward = state.baseForward; // fixed world direction
-    const behind = state.tmpBehind.copy(forward).multiplyScalar(-1);
+    const forward = cam.baseForward; // fixed world direction
+    const behind = cam.tmpBehind.copy(forward).multiplyScalar(-1);
 
     // 2) Орбита камеры — только фиксированный yaw 45° (стрейф орбиту не крутит).
     const behindDistance = 6.2;
@@ -173,16 +237,16 @@ function FollowCamera({
     const bx = behind.x * cos + behind.z * sin;
     const bz = -behind.x * sin + behind.z * cos;
 
-    state.desiredPos.set(target[0], target[1], target[2]);
-    state.desiredPos.x += bx * behindDistance;
-    state.desiredPos.z += bz * behindDistance;
-    state.desiredPos.y = up;
+    cam.desiredPos.set(target[0], target[1], target[2]);
+    cam.desiredPos.x += bx * behindDistance;
+    cam.desiredPos.z += bz * behindDistance;
+    cam.desiredPos.y = up;
 
     // 3) Точка взгляда: база у головы ГГ + сдвиг только по стрейфу (экран влево/вправо) — открывается обзор, позиция камеры та же.
     const moveLen = Math.hypot(moveDir[0], moveDir[2]);
-    camera.getWorldDirection(state.camFlatFwd);
-    let fcx = state.camFlatFwd.x;
-    let fcz = state.camFlatFwd.z;
+    camera.getWorldDirection(cam.camFlatFwd);
+    let fcx = cam.camFlatFwd.x;
+    let fcz = cam.camFlatFwd.z;
     const fcl = Math.hypot(fcx, fcz);
     if (fcl > 1e-6) {
       fcx /= fcl;
@@ -204,32 +268,37 @@ function FollowCamera({
       tx = crnx * s * strafeLookMax;
       tz = crnz * s * strafeLookMax;
     }
-    state.tmpTarget.set(tx, 0, tz);
-    smoothDampVec3(state.lookStrafeOffset, state.tmpTarget, state.lookStrafeVel, 0.28, delta);
+    cam.tmpTarget.set(tx, 0, tz);
+    smoothDampVec3(cam.lookStrafeOffset, cam.tmpTarget, cam.lookStrafeVel, 0.28, delta);
 
-    state.desiredLook.set(target[0], 1.0, target[2]);
-    state.desiredLook.addScaledVector(forward, 0.22);
-    state.desiredLook.x += state.lookStrafeOffset.x;
-    state.desiredLook.z += state.lookStrafeOffset.z;
+    cam.desiredLook.set(target[0], 1.0, target[2]);
+    cam.desiredLook.addScaledVector(forward, 0.22);
+    cam.desiredLook.x += cam.lookStrafeOffset.x;
+    cam.desiredLook.z += cam.lookStrafeOffset.z;
 
     const posSmooth = 0.26;
     const lookSmooth = 0.22;
 
     const camPos = camera.position;
-    smoothDampVec3(camPos, state.desiredPos, state.camVel, posSmooth, delta);
+    smoothDampVec3(camPos, cam.desiredPos, cam.camVel, posSmooth, delta);
 
     // Keep lookAt also smooth to avoid snapping on sudden turns.
-    smoothDampVec3(state.currentLook, state.desiredLook, state.lookVel, lookSmooth, delta);
-    camera.lookAt(state.currentLook);
-    /* eslint-enable react-hooks/immutability */
+    smoothDampVec3(cam.currentLook, cam.desiredLook, cam.lookVel, lookSmooth, delta);
+    camera.lookAt(cam.currentLook);
   });
   return null;
 }
 
 export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
-  const [playerPosition, setPlayerPosition] = useState<[number, number, number]>([1.2, -0.8, 0]);
-  const [playerMoveDir, setPlayerMoveDir] = useState<[number, number, number]>([0, 0, -1]);
-  const [virtualInput, setVirtualInput] = useState<{ x: number; z: number } | null>(null);
+  const playerPosRef = useRef<[number, number, number]>([1.2, -0.8, 0]);
+  const playerMoveDirRef = useRef<[number, number, number]>([0, 0, -1]);
+  const virtualInputRef = useRef<{ x: number; z: number } | null>(null);
+  const joyKnobRef = useRef<HTMLDivElement | null>(null);
+  const glRef = useRef<{ setPixelRatio: (v: number) => void } | null>(null);
+  const targetNpcInRangeRef = useRef(false);
+  const activeNpcIdRef = useRef(activeNpcId);
+  const promptDockRef = useRef<HTMLDivElement | null>(null);
+  const interactBtnRef = useRef<HTMLButtonElement | null>(null);
   const [isCoarsePointer, setIsCoarsePointer] = useState(false);
 
   const collisionBoxes = useMemo(() => {
@@ -258,11 +327,9 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
 
   const activeNpc = useMemo(() => NPCS.find((n) => n.id === activeNpcId) ?? NPCS[0], [activeNpcId]);
 
-  const canInteract = useMemo(() => {
-    const dx = playerPosition[0] - activeNpc.position[0];
-    const dz = playerPosition[2] - activeNpc.position[2];
-    return Math.sqrt(dx * dx + dz * dz) <= 1.9;
-  }, [activeNpc.position, playerPosition]);
+  useEffect(() => {
+    activeNpcIdRef.current = activeNpcId;
+  }, [activeNpcId]);
 
   useEffect(() => {
     const mq = window.matchMedia?.("(pointer: coarse)");
@@ -273,34 +340,75 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
   }, []);
 
   useEffect(() => {
+    const gl = glRef.current as { setPixelRatio: (v: number) => void } | null;
+    if (!gl || typeof window === "undefined") return;
+    gl.setPixelRatio(Math.min(window.devicePixelRatio, isCoarsePointer ? 1.15 : 1.45));
+  }, [isCoarsePointer]);
+
+  useEffect(() => {
+    function clampPixelRatio() {
+      const gl = glRef.current;
+      if (!gl || typeof window === "undefined") return;
+      const coarse = window.matchMedia("(pointer: coarse)").matches;
+      gl.setPixelRatio(Math.min(window.devicePixelRatio, coarse ? 1.15 : 1.45));
+    }
+    window.addEventListener("resize", clampPixelRatio);
+    return () => window.removeEventListener("resize", clampPixelRatio);
+  }, []);
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.code !== "KeyE") return;
-      if (!canInteract) return;
-      onNpcInteract(activeNpcId);
+      if (!targetNpcInRangeRef.current) return;
+      onNpcInteract(activeNpcIdRef.current);
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activeNpcId, canInteract, onNpcInteract]);
+  }, [onNpcInteract]);
+
+  const setJoyKnob = (x: number, z: number) => {
+    const el = joyKnobRef.current;
+    if (el) el.style.transform = `translate(${x * 26}px, ${-z * 26}px)`;
+  };
 
   return (
     <div className="sceneWrap fullscreen">
       <Canvas
         shadows={{ enabled: true, type: PCFShadowMap, autoUpdate: true }}
         camera={{ position: [0, 4.8, 10.5], fov: 55 }}
+        dpr={[1, 1.45]}
         gl={{ alpha: false, antialias: true, powerPreference: "high-performance" }}
+        onCreated={({ gl }) => {
+          glRef.current = gl;
+          if (typeof window === "undefined") return;
+          const coarse = window.matchMedia("(pointer: coarse)").matches;
+          gl.setPixelRatio(Math.min(window.devicePixelRatio, coarse ? 1.15 : 1.45));
+        }}
       >
-        <ShadowDiagnostics />
-        <SceneObjects playerPosition={playerPosition} activeNpcId={activeNpcId} />
-        <PlayerAvatar
-          onPositionChange={setPlayerPosition}
-          collisionBoxes={collisionBoxes}
-          virtualInput={virtualInput}
-          onMotionChange={(motion) => {
-            setPlayerMoveDir(motion.moveDir);
-          }}
-        />
-        <FollowCamera target={playerPosition} moveDir={playerMoveDir} />
+        <TargetNpcInRangeRefContext.Provider value={targetNpcInRangeRef}>
+          <NpcProximityR3f
+            playerPosRef={playerPosRef}
+            activeNpcIdRef={activeNpcIdRef}
+            targetNpcInRangeRef={targetNpcInRangeRef}
+            activeNpcId={activeNpcId}
+            promptRef={promptDockRef}
+            interactBtnRef={interactBtnRef}
+          />
+          <ShadowDiagnostics />
+          <SceneObjects activeNpcId={activeNpcId} coarsePointer={isCoarsePointer} />
+          <PlayerAvatar
+            onPositionChange={(p) => {
+              playerPosRef.current = p;
+            }}
+            collisionBoxes={collisionBoxes}
+            virtualInputRef={virtualInputRef}
+            onMotionChange={(motion) => {
+              playerMoveDirRef.current = motion.moveDir;
+            }}
+          />
+          <FollowCamera targetRef={playerPosRef} moveDirRef={playerMoveDirRef} />
+        </TargetNpcInRangeRefContext.Provider>
       </Canvas>
 
       <div className="topHint">
@@ -308,7 +416,8 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
       </div>
 
       <InteractionPrompt
-        isVisible={canInteract}
+        ref={promptDockRef}
+        variant="docked"
         title={`Поговорить: ${activeNpc.name}`}
         subtitle={activeNpc.role}
         keyLabel="E"
@@ -327,7 +436,8 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
               const dy = (e.clientY - cy) / (r.height / 2);
               const x = Math.max(-1, Math.min(1, dx));
               const z = Math.max(-1, Math.min(1, -dy));
-              setVirtualInput({ x, z });
+              virtualInputRef.current = { x, z };
+              setJoyKnob(x, z);
             }}
             onPointerMove={(e) => {
               if (!e.buttons) return;
@@ -338,27 +448,30 @@ export function SceneCanvas({ onNpcInteract, activeNpcId }: SceneCanvasProps) {
               const dy = (e.clientY - cy) / (r.height / 2);
               const x = Math.max(-1, Math.min(1, dx));
               const z = Math.max(-1, Math.min(1, -dy));
-              setVirtualInput({ x, z });
+              virtualInputRef.current = { x, z };
+              setJoyKnob(x, z);
             }}
-            onPointerUp={() => setVirtualInput(null)}
-            onPointerCancel={() => setVirtualInput(null)}
+            onPointerUp={() => {
+              virtualInputRef.current = null;
+              setJoyKnob(0, 0);
+            }}
+            onPointerCancel={() => {
+              virtualInputRef.current = null;
+              setJoyKnob(0, 0);
+            }}
           >
-            <div
-              className="joyKnob"
-              style={{
-                transform: `translate(${(virtualInput?.x ?? 0) * 26}px, ${-(virtualInput?.z ?? 0) * 26}px)`,
-              }}
-            />
+            <div ref={joyKnobRef} className="joyKnob" />
           </div>
 
           <button
+            ref={interactBtnRef}
             className="interactBtn"
             type="button"
+            disabled
             onClick={() => {
-              if (!canInteract) return;
-              onNpcInteract(activeNpcId);
+              if (!targetNpcInRangeRef.current) return;
+              onNpcInteract(activeNpcIdRef.current);
             }}
-            disabled={!canInteract}
           >
             E
           </button>
