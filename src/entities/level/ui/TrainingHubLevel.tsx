@@ -4,7 +4,7 @@ import { Environment } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
 import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import type { DirectionalLight } from "three";
-import { Group, Mesh } from "three";
+import { BoxGeometry, Group, InstancedMesh, Mesh, MeshStandardMaterial, Object3D, RepeatWrapping } from "three";
 import {
   createCeilingTileTexture,
   createConcreteTexture,
@@ -14,6 +14,24 @@ import {
   createWoodLaminateTexture,
 } from "@/shared/lib/threeTextures";
 import { officeVisual as ov } from "../model/officeVisual";
+
+/** Детерминированные звёзды в локальных координатах CityBackdrop (y — верхняя часть окон). */
+function makeCityStarField(): Array<[number, number, number, number]> {
+  const out: Array<[number, number, number, number]> = [];
+  for (let i = 0; i < 52; i++) {
+    const u = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+    const v = Math.sin(i * 39.4231 + 11.7) * 31415.9265;
+    const fx = u - Math.floor(u);
+    const fy = v - Math.floor(v);
+    const x = (fx - 0.5) * 58;
+    const y = 3.6 + fy * 5.4;
+    const z = -0.34 - (i % 7) * 0.018;
+    const s = 0.04 + (i % 5) * 0.022;
+    out.push([x, y, z, s]);
+  }
+  return out;
+}
+const CITY_STAR_FIELD = makeCityStarField();
 
 /** `true` — тест: directional сверху. `false` — свет с окна (боевой режим). */
 const DEBUG_OVERHEAD_SUN = false;
@@ -60,7 +78,7 @@ function LowPlanterRow({
   seed?: number;
   soilMap: ReturnType<typeof createSoilTexture>;
 }) {
-  const rimH = 0.22;
+  const rimH = 0.42;
   const innerW = 0.62;
   const innerD = 0.44;
 
@@ -149,24 +167,152 @@ function LowPlanterRow({
   );
 }
 
+/**
+ * Силуэты ближе к стеклу (+Z к комнате).
+ * Низ ~ у подоконника — в кадре не «пол под ногами», а стена зданий + небо выше.
+ */
+const CITY_SILHOUETTES = [
+  { x: -27, w: 2.6, h: 9.5, z: 0.34, win: 3 },
+  { x: -21, w: 4.0, h: 12.8, z: 0.46, win: 5 },
+  { x: -14, w: 2.9, h: 10.2, z: 0.3, win: 3 },
+  { x: -7, w: 3.4, h: 11.0, z: 0.52, win: 4 },
+  { x: 0, w: 4.8, h: 13.5, z: 0.4, win: 6 },
+  { x: 8, w: 3.0, h: 9.0, z: 0.5, win: 3 },
+  { x: 15, w: 3.6, h: 11.4, z: 0.34, win: 4 },
+  { x: 23, w: 2.4, h: 8.2, z: 0.28, win: 2 },
+  { x: -10, w: 2.1, h: 7.0, z: 0.58, win: 2 },
+  { x: 12, w: 2.3, h: 7.6, z: 0.54, win: 2 },
+  { x: -17, w: 1.8, h: 6.2, z: 0.66, win: 2 },
+  { x: 19, w: 1.9, h: 6.5, z: 0.62, win: 2 },
+] as const;
+
+function CityBackdropBuilding({
+  x,
+  w,
+  h,
+  z,
+  winCount,
+}: {
+  x: number;
+  w: number;
+  h: number;
+  z: number;
+  winCount: number;
+}) {
+  /** Подоконник в проёме ~ y≈−0.3 мир; группа z=−18 — низ силуэта чуть ниже, масса вверх в окно */
+  const baseY = -0.22;
+  const cy = baseY + h * 0.5;
+  const depth = 0.12;
+  const cols = Math.min(3, Math.max(1, winCount <= 2 ? 1 : winCount <= 4 ? 2 : 3));
+  const rows = Math.min(3, Math.max(2, Math.ceil(winCount / cols)));
+  const faces: ReactNode[] = [];
+  let k = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (k >= winCount) break;
+      const wx = cols === 1 ? 0 : (c / (cols - 1) - 0.5) * w * 0.62;
+      /* Ниже центра корпуса — в кадре под верхней перемычкой окна, не у облаков */
+      const wy = -h * 0.34 + (r / Math.max(1, rows - 1)) * (h * 0.32);
+      faces.push(
+        <mesh key={k} position={[wx, wy, depth * 0.52]} userData={{ shadow: "none" as const }}>
+          <planeGeometry args={[Math.min(0.42, w * 0.22), Math.min(0.55, h * 0.2)]} />
+          <meshStandardMaterial
+            color="#1a2844"
+            emissive="#f0d78a"
+            emissiveIntensity={0.95 + (k % 3) * 0.18}
+            roughness={0.45}
+            metalness={0.05}
+          />
+        </mesh>,
+      );
+      k += 1;
+    }
+  }
+  return (
+    <group position={[x, cy, z]}>
+      <mesh userData={{ shadow: "none" as const }}>
+        <boxGeometry args={[w, h, depth]} />
+        <meshStandardMaterial color="#080e18" roughness={0.94} metalness={0.04} />
+      </mesh>
+      {faces}
+    </group>
+  );
+}
+
 function CityBackdrop() {
   return (
-    <group position={[0, 0, -18]}>
-      <mesh position={[0, 4.2, 0]} userData={{ shadow: "none" as const }}>
-        <planeGeometry args={[60, 18]} />
-        <meshStandardMaterial color={ov.cityDeep} emissive={ov.cityDeepEmissive} emissiveIntensity={1.05} roughness={1} metalness={0} />
+    <group position={[0, 0, -17.85]}>
+      {/* Зенит — светлее, чтобы пробивалось через transmission стекла */}
+      <mesh position={[0, 6.9, -0.52]} userData={{ shadow: "none" as const }}>
+        <planeGeometry args={[76, 17]} />
+        <meshStandardMaterial color="#121a32" emissive="#3558a8" emissiveIntensity={0.72} roughness={1} metalness={0} />
+      </mesh>
+      <mesh position={[0, 4.75, -0.28]} userData={{ shadow: "none" as const }}>
+        <planeGeometry args={[74, 15]} />
+        <meshStandardMaterial color="#243058" emissive="#4a6ab4" emissiveIntensity={0.58} roughness={1} metalness={0} />
+      </mesh>
+      <mesh position={[0, 2.95, -0.08]} userData={{ shadow: "none" as const }}>
+        <planeGeometry args={[68, 11]} />
+        <meshStandardMaterial color="#344868" emissive="#5a78c8" emissiveIntensity={0.45} roughness={1} metalness={0} />
       </mesh>
 
-      <mesh position={[0, 2.8, 0.01]} userData={{ shadow: "none" as const }}>
-        <planeGeometry args={[58, 14]} />
+      <mesh position={[0, 3.55, 0.04]} userData={{ shadow: "none" as const }}>
+        <planeGeometry args={[60, 12]} />
+        <meshStandardMaterial color={ov.cityDeep} emissive={ov.cityDeepEmissive} emissiveIntensity={1.15} roughness={1} metalness={0} />
+      </mesh>
+
+      <mesh position={[0, 2.7, 0.06]} userData={{ shadow: "none" as const }}>
+        <planeGeometry args={[58, 10]} />
         <meshStandardMaterial
           color={ov.cityWindows}
           emissive={ov.cityWindowsEmissive}
-          emissiveIntensity={0.68}
+          emissiveIntensity={0.78}
           metalness={0.0}
           roughness={1.0}
         />
       </mesh>
+
+      {CITY_STAR_FIELD.map(([sx, sy, sz, ss], i) => (
+        <mesh key={`star-${i}`} position={[sx, sy, sz]} userData={{ shadow: "none" as const }}>
+          <sphereGeometry args={[ss, 6, 6]} />
+          <meshStandardMaterial
+            color="#f0f4ff"
+            emissive="#e8eeff"
+            emissiveIntensity={1.1 + (i % 4) * 0.15}
+            roughness={0.35}
+            metalness={0}
+          />
+        </mesh>
+      ))}
+
+      <mesh position={[-16, 7.0, -0.38]} userData={{ shadow: "none" as const }}>
+        <circleGeometry args={[0.95, 28]} />
+        <meshStandardMaterial color="#c5d4f0" emissive="#eef4ff" emissiveIntensity={0.55} roughness={0.75} metalness={0} />
+      </mesh>
+      <mesh position={[-16.35, 6.72, -0.36]} userData={{ shadow: "none" as const }}>
+        <circleGeometry args={[0.72, 24]} />
+        <meshStandardMaterial color="#8899b8" emissive="#a8b8d8" emissiveIntensity={0.12} roughness={0.85} metalness={0} />
+      </mesh>
+
+      <mesh position={[0, -0.42, 0.16]} userData={{ shadow: "none" as const }}>
+        <planeGeometry args={[64, 0.9]} />
+        <meshStandardMaterial color="#5a4a62" emissive="#e8c4dc" emissiveIntensity={0.2} roughness={1} metalness={0} />
+      </mesh>
+
+      <mesh position={[0, 0.38, 0.12]} userData={{ shadow: "none" as const }}>
+        <planeGeometry args={[62, 2.8]} />
+        <meshStandardMaterial color="#28364c" emissive="#4a62a0" emissiveIntensity={0.32} roughness={1} metalness={0} />
+      </mesh>
+
+      {/* Тонкий тёмный газон у подножия домов — без яркого зелёного «барьера» */}
+      <mesh position={[0, -0.58, 0.2]} userData={{ shadow: "none" as const }}>
+        <planeGeometry args={[70, 0.55]} />
+        <meshStandardMaterial color="#1c281c" emissive="#243224" emissiveIntensity={0.03} roughness={0.97} metalness={0.02} />
+      </mesh>
+
+      {CITY_SILHOUETTES.map((b, i) => (
+        <CityBackdropBuilding key={i} x={b.x} w={b.w} h={b.h} z={b.z} winCount={b.win} />
+      ))}
     </group>
   );
 }
@@ -507,28 +653,28 @@ function Lounge({
   position: [number, number, number];
   woodMap: ReturnType<typeof createWoodLaminateTexture>;
 }) {
-  const seatW = 1.92;
+  const seatW = 2.2;
   const seatD = 0.78;
   const armW = 0.2;
   const armD = 0.72;
   const armX = seatW / 2 + armW / 2;
   return (
     <group position={position}>
-      <mesh position={[0, 0.36, 0.02]}>
+      <mesh position={[0, 0.24, 0.02]}>
         <boxGeometry args={[seatW, 0.28, seatD]} />
-        <meshStandardMaterial color={ov.fabricSofa} roughness={ov.rough.fabric} metalness={ov.metal.low} />
+        <meshStandardMaterial color="#dd9475" roughness={ov.rough.fabric} metalness={ov.metal.low} />
       </mesh>
-      <mesh position={[0, 0.56, -0.32]}>
+      <mesh position={[0, 0.42, -0.32]}>
         <boxGeometry args={[seatW + 0.04, 0.42, 0.14]} />
-        <meshStandardMaterial color={ov.fabricDark} roughness={0.85} metalness={ov.metal.low} />
+        <meshStandardMaterial color="#7a431f" roughness={0.85} metalness={ov.metal.low} />
       </mesh>
-      <mesh position={[-armX, 0.34, 0.02]}>
-        <boxGeometry args={[armW, 0.44, armD]} />
-        <meshStandardMaterial color={ov.fabricDark} roughness={0.85} metalness={ov.metal.low} />
+      <mesh position={[-armX, 0.245, 0.02]}>
+        <boxGeometry args={[armW, 0.5, armD]} />
+        <meshStandardMaterial color="#7a431f" roughness={0.85} metalness={ov.metal.low} />
       </mesh>
-      <mesh position={[armX, 0.34, 0.02]}>
-        <boxGeometry args={[armW, 0.44, armD]} />
-        <meshStandardMaterial color={ov.fabricDark} roughness={0.85} metalness={ov.metal.low} />
+      <mesh position={[armX, 0.245, 0.02]}>
+        <boxGeometry args={[armW, 0.5, armD]} />
+        <meshStandardMaterial color="#7a431f" roughness={0.85} metalness={ov.metal.low} />
       </mesh>
 
       <mesh position={[0.0, 0.26, 1.05]}>
@@ -569,11 +715,32 @@ function AreaRug({
 }
 
 function WaterCooler({ position }: { position: [number, number, number] }) {
+  const bodyTopY = 0.55 + 0.55;
+  /** Перевёрнутая бутыль: горловина вниз в кулер, толстый бочок сверху. */
+  const jugR = 0.22;
+  const jugH = 0.4;
+  const neckR = 0.07;
+  const neckH = 0.14;
+  const neckCy = bodyTopY - neckH * 0.6;
+  const neckTopY = neckCy + neckH * 0.5;
+  const shoulderH = 0.1;
+  const shoulderCy = neckTopY + shoulderH * 0.5;
+  const shoulderTopY = shoulderCy + shoulderH * 0.5;
+  const jugCy = shoulderTopY + jugH * 0.5;
+  const jugMat = {
+    color: "#9fd4ea" as const,
+    emissive: "#5a8aa8" as const,
+    emissiveIntensity: 0.08,
+    roughness: 0.18,
+    metalness: 0.06,
+    transparent: true,
+    opacity: 0.9,
+  };
   return (
     <group position={position}>
       <mesh position={[0, 0.55, 0]}>
         <boxGeometry args={[0.42, 1.1, 0.42]} />
-        <meshStandardMaterial color={ov.fabricDark} metalness={0.22} roughness={0.58} />
+        <meshStandardMaterial color="#FFFFFF" metalness={0.22} roughness={0.58} />
       </mesh>
       <mesh position={[0, 0.62, 0.21]}>
         <boxGeometry args={[0.34, 0.55, 0.02]} />
@@ -585,9 +752,29 @@ function WaterCooler({ position }: { position: [number, number, number] }) {
           metalness={0.12}
         />
       </mesh>
-      <mesh position={[0, 0.05, 0]}>
-        <cylinderGeometry args={[0.22, 0.26, 0.1, 18]} />
-        <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
+      <mesh position={[0, bodyTopY - 0.01, 0]}>
+        <cylinderGeometry args={[0.092, 0.098, 0.026, 16]} />
+        <meshStandardMaterial color="#1a222c" roughness={0.52} metalness={0.22} />
+      </mesh>
+      <mesh position={[0, neckCy, 0]}>
+        <cylinderGeometry args={[neckR, neckR, neckH, 16]} />
+        <meshStandardMaterial
+          color="#7ab8d4"
+          emissive="#4a7894"
+          emissiveIntensity={0.05}
+          roughness={0.35}
+          metalness={0.1}
+          transparent
+          opacity={0.92}
+        />
+      </mesh>
+      <mesh position={[0, shoulderCy, 0]}>
+        <cylinderGeometry args={[jugR, neckR + 0.006, shoulderH, 18]} />
+        <meshStandardMaterial {...jugMat} />
+      </mesh>
+      <mesh position={[0, jugCy, 0]}>
+        <cylinderGeometry args={[jugR, jugR, jugH, 16]} />
+        <meshStandardMaterial {...jugMat} />
       </mesh>
     </group>
   );
@@ -647,11 +834,11 @@ function TrashBin({ position }: { position: [number, number, number] }) {
     <group position={position}>
       <mesh position={[0, 0.28, 0]}>
         <cylinderGeometry args={[0.18, 0.2, 0.56, 18]} />
-        <meshStandardMaterial color={ov.metalLeg} metalness={0.28} roughness={0.52} />
+        <meshStandardMaterial color="grey" metalness={0.28} roughness={0.52} />
       </mesh>
       <mesh position={[0, 0.58, 0]}>
         <cylinderGeometry args={[0.2, 0.2, 0.06, 18]} />
-        <meshStandardMaterial color={ov.ink} metalness={0.32} roughness={0.48} />
+        <meshStandardMaterial color="grey" metalness={0.32} roughness={0.48} />
       </mesh>
     </group>
   );
@@ -666,16 +853,16 @@ function CoffeeStation({ position, rotationY = 0 }: { position: [number, number,
     <group position={position} rotation={[0, rotationY, 0]}>
       <mesh position={[0, baseY, 0]}>
         <boxGeometry args={[1.06, baseH, 0.62]} />
-        <meshStandardMaterial color={ov.metalLeg} metalness={ov.metal.leg} roughness={ov.rough.metal} />
+        <meshStandardMaterial color="#7a3f00" metalness={ov.metal.leg} roughness={ov.rough.metal} />
       </mesh>
       <mesh position={[0, bodyY, 0]}>
         <boxGeometry args={[0.95, bodyH, 0.55]} />
-        <meshStandardMaterial color={ov.fabricDark} metalness={0.12} roughness={0.72} />
+        <meshStandardMaterial color="#dd9475" metalness={0.12} roughness={0.72} />
       </mesh>
       <mesh position={[0.18, bodyY + 0.3, 0.28]}>
         <boxGeometry args={[0.34, 0.22, 0.06]} />
         <meshStandardMaterial
-          color={ov.ink}
+          color="#42aaff"
           emissive={ov.accentAmber}
           emissiveIntensity={0.045}
           roughness={0.48}
@@ -684,7 +871,7 @@ function CoffeeStation({ position, rotationY = 0 }: { position: [number, number,
       </mesh>
       <mesh position={[-0.22, bodyY + 0.05, 0.28]}>
         <cylinderGeometry args={[0.05, 0.05, 0.22, 12]} />
-        <meshStandardMaterial color="#c5cedd" metalness={0.4} roughness={0.38} />
+        <meshStandardMaterial color="#7a3f00" metalness={0.4} roughness={0.38} />
       </mesh>
     </group>
   );
@@ -940,6 +1127,112 @@ function SunDirectional() {
   );
 }
 
+/** Северный газон — совпадает с mesh `position={[-3,-0.798,-15.84]}`, `planeGeometry [58,4.65]`. */
+const N_LAWN_CX = -3;
+const N_LAWN_Y = -0.798;
+const N_LAWN_CZ = -15.84;
+const N_LAWN_HALF_X = 58 / 2;
+const N_LAWN_HALF_Z = 4.65 / 2;
+
+const N_LAWN_BLADE_SHORT = 4200;
+const N_LAWN_BLADE_TALL = 900;
+
+type LawnBlade = { x: number; z: number; h: number; ry: number; tilt: number; sx: number; sz: number };
+
+function makeLawnBladeData(count: number, salt: number, hMin: number, hStep: number, hMods: number, southBias: number): LawnBlade[] {
+  const z0 = N_LAWN_CZ - N_LAWN_HALF_Z + 0.06;
+  const z1 = N_LAWN_CZ + N_LAWN_HALF_Z - 0.06;
+  const x0 = N_LAWN_CX - N_LAWN_HALF_X * 0.97;
+  const x1 = N_LAWN_CX + N_LAWN_HALF_X * 0.97;
+  const arr: LawnBlade[] = [];
+  for (let i = 0; i < count; i++) {
+    const u = Math.sin(i * 12.9898 + salt) * 0.5 + 0.5;
+    const rawV = Math.sin(i * 79.233 + salt * 0.31) * 0.5 + 0.5;
+    const v = Math.pow(Math.max(1e-5, rawV), southBias);
+    const x = x0 + u * (x1 - x0);
+    const z = z0 + v * (z1 - z0);
+    const h = hMin + (i % hMods) * hStep;
+    const ry = Math.sin(i * 44.7 + salt) * Math.PI;
+    const tilt = 0.04 + (i % 7) * 0.026;
+    const sx = 0.75 + (i % 6) * 0.1;
+    const sz = 0.8 + (i % 5) * 0.12;
+    arr.push({ x, z, h, ry, tilt, sx, sz });
+  }
+  return arr;
+}
+
+function writeLawnMatrices(inst: InstancedMesh, dummy: Object3D, data: LawnBlade[], baseH: number, y: number) {
+  for (let i = 0; i < data.length; i++) {
+    const { x, z, h, ry, tilt, sx, sz } = data[i];
+    dummy.position.set(x, y + h * 0.5, z);
+    dummy.rotation.set(tilt, ry, tilt * 0.32);
+    dummy.scale.set(sx, h / baseH, sz);
+    dummy.updateMatrix();
+    inst.setMatrixAt(i, dummy.matrix);
+  }
+  inst.instanceMatrix.needsUpdate = true;
+}
+
+/** Два слоя травы: плотный «кипящий» газон + реже — высокие стебли (читается с дистанции). */
+function NorthLawnGrassBlades() {
+  const refShort = useRef<InstancedMesh>(null);
+  const refTall = useRef<InstancedMesh>(null);
+  const dummy = useMemo(() => new Object3D(), []);
+  const geomShort = useMemo(() => new BoxGeometry(0.017, 0.09, 0.013), []);
+  const geomTall = useMemo(() => new BoxGeometry(0.014, 0.15, 0.011), []);
+  const matShort = useMemo(
+    () =>
+      new MeshStandardMaterial({
+        color: "#2f4a36",
+        emissive: "#141c14",
+        emissiveIntensity: 0.028,
+        roughness: 0.93,
+        metalness: 0,
+      }),
+    [],
+  );
+  const matTall = useMemo(
+    () =>
+      new MeshStandardMaterial({
+        color: "#4a6e52",
+        emissive: "#243828",
+        emissiveIntensity: 0.055,
+        roughness: 0.88,
+        metalness: 0,
+      }),
+    [],
+  );
+  const dataShort = useMemo(
+    () => makeLawnBladeData(N_LAWN_BLADE_SHORT, 101, 0.045, 0.012, 10, 0.52),
+    [],
+  );
+  const dataTall = useMemo(
+    () => makeLawnBladeData(N_LAWN_BLADE_TALL, 707, 0.09, 0.022, 12, 0.45),
+    [],
+  );
+
+  useLayoutEffect(() => {
+    if (refShort.current) writeLawnMatrices(refShort.current, dummy, dataShort, 0.09, N_LAWN_Y);
+    if (refTall.current) writeLawnMatrices(refTall.current, dummy, dataTall, 0.15, N_LAWN_Y);
+  }, [dataShort, dataTall, dummy]);
+
+  useEffect(() => {
+    return () => {
+      geomShort.dispose();
+      geomTall.dispose();
+      matShort.dispose();
+      matTall.dispose();
+    };
+  }, [geomShort, geomTall, matShort, matTall]);
+
+  return (
+    <group>
+      <instancedMesh ref={refShort} args={[geomShort, matShort, N_LAWN_BLADE_SHORT]} userData={{ shadow: "none" as const }} />
+      <instancedMesh ref={refTall} args={[geomTall, matTall, N_LAWN_BLADE_TALL]} userData={{ shadow: "none" as const }} />
+    </group>
+  );
+}
+
 export function TrainingHubLevel() {
   const wallTex = useMemo(() => createConcreteTexture({ base: ov.wallTexBase, seed: 1201 }), []);
   const floorTex = useMemo(
@@ -966,6 +1259,14 @@ export function TrainingHubLevel() {
     [],
   );
   const ceilingTex = useMemo(() => createCeilingTileTexture({ seed: 6201, base: ov.ceiling, line: ov.ceilingGridEmissive }), []);
+
+  /** Трава за окном: приглушённый тон + мелкий шум — не «плашка», через стекло читается как дальний газон. */
+  const grassFieldTex = useMemo(() => {
+    const t = createFabricNoiseTexture({ base: "#036f1e", seed: 8842 });
+    t.wrapS = t.wrapT = RepeatWrapping;
+    t.repeat.set(28, 4.5);
+    return t;
+  }, []);
 
   /** Паркет не уходит севернее стекла — иначе через transmission виден «пол за окном». */
   const floorZNorth = -13.46;
@@ -1040,19 +1341,32 @@ export function TrainingHubLevel() {
       <CityBackdrop />
 
       <NorthWindowWallFrame />
+      {/* Газон снаружи: только горизонталь, севернее стекла; без вертикали — она закрывала половину проёма */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-3, -0.798, -15.84]} userData={{ shadow: "none" as const }}>
+        <planeGeometry args={[58, 4.65]} />
+        <meshStandardMaterial
+          map={grassFieldTex}
+          color="#c8e0c8"
+          emissive="#1a2820"
+          emissiveIntensity={0.04}
+          roughness={0.94}
+          metalness={0.02}
+        />
+      </mesh>
+      <NorthLawnGrassBlades />
       <mesh position={[0, 1.2, -13.49]} userData={{ shadow: "none" as const }}>
         <boxGeometry args={[32, 3.0, 0.06]} />
         <meshPhysicalMaterial
           color="#dce8f8"
           metalness={0.04}
-          roughness={0.08}
-          transmission={0.92}
-          thickness={0.08}
+          roughness={0.06}
+          transmission={0.97}
+          thickness={0.035}
           ior={1.48}
           transparent
-          envMapIntensity={0.45}
-          attenuationColor="#93a8c8"
-          attenuationDistance={2.5}
+          envMapIntensity={0.5}
+          attenuationColor="#b8c8e8"
+          attenuationDistance={14}
         />
       </mesh>
       <WindowMullions />

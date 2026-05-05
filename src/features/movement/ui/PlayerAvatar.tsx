@@ -22,12 +22,11 @@ import { createFabricNoiseTexture } from "@/shared/lib/threeTextures";
 /** Совпадает с полом `TrainingHubLevel` (`mesh` на y = -0.8). */
 const FLOOR_Y = -0.8;
 
-/** Плавный поворот к целевому yaw по кратчайшей дуге (рад). */
+/** Плавный поворот к целевому yaw по кратчайшей дуге (рад). atan2(sin,cos) — корректно при любом «намотанном» from. */
 function lerpYawShortest(from: number, to: number, alpha: number): number {
-  let d = to - from;
-  if (d > Math.PI) d -= Math.PI * 2;
-  if (d < -Math.PI) d += Math.PI * 2;
-  return from + d * alpha;
+  const d = Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  const y = from + d * alpha;
+  return Math.atan2(Math.sin(y), Math.cos(y));
 }
 
 interface PlayerAvatarProps {
@@ -58,6 +57,19 @@ export function PlayerAvatar({
   const groupRef = useRef<Group>(null);
   const legsGroupRef = useRef<Group>(null);
   const wheelchairGroupRef = useRef<Group>(null);
+  /** Пивоты для качания при ходьбе (таз / плечо). */
+  const leftLegSwingRef = useRef<Group>(null);
+  const rightLegSwingRef = useRef<Group>(null);
+  const leftArmSwingRef = useRef<Group>(null);
+  const rightArmSwingRef = useRef<Group>(null);
+  const walkPhaseRef = useRef(0);
+  const walkSwingBlendRef = useRef(0);
+  /** Смешивание анимации рук «толкаем обода» в режиме коляски (6+7). */
+  const chairArmBlendRef = useRef(0);
+  /** Режим коляски (6+7): переключение по нажатию комбо, без удержания. */
+  const wheelchairModeRef = useRef(false);
+  /** Предыдущий кадр: оба ключа 6 и 7 зажаты — чтобы ловить только фронт. */
+  const wheelchairComboPrevRef = useRef(false);
   const pressedCodesRef = useRef<Record<string, boolean>>({});
   const lastPosRef = useRef<[number, number, number] | null>(null);
   const lastMoveDirRef = useRef<[number, number, number]>([0, 0, -1]);
@@ -261,9 +273,14 @@ export function PlayerAvatar({
     }
 
     const keys = pressedCodesRef.current;
-    const wheelchairMode = Boolean(
-      (keys.Digit6 && keys.Digit7) || (keys.Numpad6 && keys.Numpad7),
-    );
+    const comboRow = Boolean(keys.Digit6 && keys.Digit7);
+    const comboNum = Boolean(keys.Numpad6 && keys.Numpad7);
+    const combo = comboRow || comboNum;
+    if (combo && !wheelchairComboPrevRef.current) {
+      wheelchairModeRef.current = !wheelchairModeRef.current;
+    }
+    wheelchairComboPrevRef.current = combo;
+    const wheelchairMode = wheelchairModeRef.current;
     if (legsGroupRef.current) {
       legsGroupRef.current.visible = !wheelchairMode;
     }
@@ -369,6 +386,36 @@ export function PlayerAvatar({
         yaw,
       });
     }
+
+    // Ходьба: противофаза рук и ног. Коляска (6+7): ноги скрыты, обе руки в одну фазу — как при катании.
+    const walkActive = !wheelchairMode && planarSpeed > 0.08;
+    const chairPushActive = wheelchairMode && planarSpeed > 0.08;
+    const targetWalkBlend = walkActive ? Math.min(1, planarSpeed / 2.2) : 0;
+    const targetChairArmBlend = chairPushActive ? Math.min(1, planarSpeed / 2.2) : 0;
+    const blendAlpha = 1 - Math.exp(-10 * delta);
+    walkSwingBlendRef.current += (targetWalkBlend - walkSwingBlendRef.current) * blendAlpha;
+    chairArmBlendRef.current += (targetChairArmBlend - chairArmBlendRef.current) * blendAlpha;
+    const walkB = walkSwingBlendRef.current;
+    const chairB = chairArmBlendRef.current;
+    if (walkB > 0.02 || chairB > 0.02) {
+      walkPhaseRef.current += delta * Math.max(planarSpeed, 0.35) * 6.5;
+    }
+    const s = Math.sin(walkPhaseRef.current);
+    const legAmp = 0.38;
+    const armAmp = 0.28;
+    const chairArmAmp = 0.26;
+    if (leftLegSwingRef.current) {
+      leftLegSwingRef.current.rotation.x = wheelchairMode ? 0 : s * legAmp * walkB;
+    }
+    if (rightLegSwingRef.current) {
+      rightLegSwingRef.current.rotation.x = wheelchairMode ? 0 : -s * legAmp * walkB;
+    }
+    if (leftArmSwingRef.current) {
+      leftArmSwingRef.current.rotation.x = wheelchairMode ? s * chairArmAmp * chairB : -s * armAmp * walkB;
+    }
+    if (rightArmSwingRef.current) {
+      rightArmSwingRef.current.rotation.x = wheelchairMode ? s * chairArmAmp * chairB : s * armAmp * walkB;
+    }
   });
 
   return (
@@ -389,90 +436,93 @@ export function PlayerAvatar({
           <meshStandardMaterial map={coatTex} color="#ffffff" metalness={0.08} roughness={0.84} envMapIntensity={0.52} />
         </mesh>
 
-        {/* Ноги — скрываются при удержании 6+7 (Digit6 + Digit7) */}
+        {/* Ноги — пивот у таза для шага; скрываются в режиме коляски (6+7 — переключение) */}
         <group ref={legsGroupRef}>
-          <mesh position={[-0.12, 0.215, 0.03]}>
-            <capsuleGeometry args={[0.088, 0.34, 6, 12]} />
-            <meshStandardMaterial
-              map={coatTex}
-              color="#ffffff"
-              metalness={0.06}
-              roughness={0.88}
-              envMapIntensity={0.48}
-              polygonOffset
-              polygonOffsetFactor={-1}
-              polygonOffsetUnits={-1}
-            />
-          </mesh>
-          <mesh position={[0.12, 0.215, 0.03]}>
-            <capsuleGeometry args={[0.088, 0.34, 6, 12]} />
-            <meshStandardMaterial
-              map={coatTex}
-              color="#ffffff"
-              metalness={0.06}
-              roughness={0.88}
-              envMapIntensity={0.48}
-              polygonOffset
-              polygonOffsetFactor={-1}
-              polygonOffsetUnits={-1}
-            />
-          </mesh>
-          <mesh position={[-0.12, 0.062, 0.03]}>
-            <capsuleGeometry args={[0.078, 0.29, 6, 10]} />
-            <meshStandardMaterial
-              map={coatTex}
-              color="#ffffff"
-              metalness={0.05}
-              roughness={0.9}
-              envMapIntensity={0.45}
-              polygonOffset
-              polygonOffsetFactor={-1}
-              polygonOffsetUnits={-1}
-            />
-          </mesh>
-          <mesh position={[0.12, 0.062, 0.03]}>
-            <capsuleGeometry args={[0.078, 0.29, 6, 10]} />
-            <meshStandardMaterial
-              map={coatTex}
-              color="#ffffff"
-              metalness={0.05}
-              roughness={0.9}
-              envMapIntensity={0.45}
-              polygonOffset
-              polygonOffsetFactor={-1}
-              polygonOffsetUnits={-1}
-            />
-          </mesh>
-          {/* Обувь — не blindTex (иначе как вторая «повязка» + тот же ржавый оттенок в тени). */}
-          <mesh position={[-0.12, 0.0235, 0.03]} rotation={[0.02, 0, 0]}>
-            <boxGeometry args={[0.12, 0.047, 0.22]} />
-            <meshStandardMaterial
-              map={coatTex}
-              color="#d2d8e4"
-              metalness={0.1}
-              roughness={0.78}
-              envMapIntensity={0.45}
-              polygonOffset
-              polygonOffsetFactor={-1.5}
-              polygonOffsetUnits={-1}
-            />
-          </mesh>
-          <mesh position={[0.12, 0.0235, 0.03]} rotation={[0.02, 0, 0]}>
-            <boxGeometry args={[0.12, 0.047, 0.22]} />
-            <meshStandardMaterial
-              map={coatTex}
-              color="#d2d8e4"
-              metalness={0.1}
-              roughness={0.78}
-              envMapIntensity={0.45}
-              polygonOffset
-              polygonOffsetFactor={-1.5}
-              polygonOffsetUnits={-1}
-            />
-          </mesh>
+          <group ref={leftLegSwingRef} position={[-0.12, 0.38, 0]}>
+            <mesh position={[0, -0.07, 0]}>
+              <capsuleGeometry args={[0.088, 0.25, 6, 12]} />
+              <meshStandardMaterial
+                map={coatTex}
+                color="#ffffff"
+                metalness={0.06}
+                roughness={0.88}
+                envMapIntensity={0.48}
+                polygonOffset
+                polygonOffsetFactor={-1}
+                polygonOffsetUnits={-1}
+              />
+            </mesh>
+            <mesh position={[0, -0.2, 0]}>
+              <capsuleGeometry args={[0.078, 0.29, 6, 10]} />
+              <meshStandardMaterial
+                map={coatTex}
+                color="#ffffff"
+                metalness={0.05}
+                roughness={0.9}
+                envMapIntensity={0.45}
+                polygonOffset
+                polygonOffsetFactor={-1}
+                polygonOffsetUnits={-1}
+              />
+            </mesh>
+            <mesh position={[0, -0.36, 0.04]} rotation={[0.02, 0, 0]}>
+              <boxGeometry args={[0.12, 0.08, 0.2]} />
+              <meshStandardMaterial
+                map={coatTex}
+                color="#d2d8e4"
+                metalness={0.1}
+                roughness={0.78}
+                envMapIntensity={0.45}
+                polygonOffset
+                polygonOffsetFactor={-1.5}
+                polygonOffsetUnits={-1}
+              />
+            </mesh>
+          </group>
+          <group ref={rightLegSwingRef} position={[0.12, 0.38, 0]}>
+            <mesh position={[0, -0.07, 0]}>
+              <capsuleGeometry args={[0.088, 0.25, 6, 12]} />
+              <meshStandardMaterial
+                map={coatTex}
+                color="#ffffff"
+                metalness={0.06}
+                roughness={0.88}
+                envMapIntensity={0.48}
+                polygonOffset
+                polygonOffsetFactor={-1}
+                polygonOffsetUnits={-1}
+              />
+            </mesh>
+            <mesh position={[0, -0.2, 0]}>
+              <capsuleGeometry args={[0.078, 0.29, 6, 10]} />
+              <meshStandardMaterial
+                map={coatTex}
+                color="#ffffff"
+                metalness={0.05}
+                roughness={0.9}
+                envMapIntensity={0.45}
+                polygonOffset
+                polygonOffsetFactor={-1}
+                polygonOffsetUnits={-1}
+              />
+            </mesh>
+            <mesh position={[0, -0.36, 0.04]} rotation={[0.02, 0, 0]}>
+              <boxGeometry args={[0.12, 0.08, 0.2]} />
+              <meshStandardMaterial
+                map={coatTex}
+                color="#d2d8e4"
+                metalness={0.1}
+                roughness={0.78}
+                envMapIntensity={0.45}
+                polygonOffset
+                polygonOffsetFactor={-1.5}
+                polygonOffsetUnits={-1}
+              />
+            </mesh>
+          </group>
         </group>
 
-        {/* Easter egg 6+7: коляска — колёса цилиндром Rz(π/2): ось вдоль X, диск в YZ (вертикально, не тор в XY) */}
+        {/* Easter egg 6+7 (тап переключает): коляска — колёса цилиндром Rz(π/2): ось вдоль X, диск в YZ (вертикально, не тор в XY) */}
         <group ref={wheelchairGroupRef} visible={false} position={[0, 0, 0.05]}>
           {/** Ось колеса вдоль X: [0,0,π/2] у цилиндра по умолчанию вдоль Y */}
           {/* Задние колёса: ещё крупнее R≈0.335; cy=R — касание пола */}
@@ -611,51 +661,54 @@ export function PlayerAvatar({
           <meshStandardMaterial map={coatTex} color="#ffffff" metalness={0.1} roughness={0.8} envMapIntensity={0.52} />
         </mesh>
 
-        {/* Руки в рукаве — длинные, с наклоном «уверенная стойка» */}
-        <mesh position={[-0.38, 0.93, 0.02]} rotation={[0.12, 0, -0.35]}>
-          <capsuleGeometry args={[0.095, 0.42, 6, 12]} />
-          <meshStandardMaterial map={coatTex} color="#ffffff" metalness={0.09} roughness={0.83} envMapIntensity={0.52} />
-        </mesh>
-        <mesh position={[0.38, 0.93, 0.02]} rotation={[0.12, 0, 0.35]}>
-          <capsuleGeometry args={[0.095, 0.42, 6, 12]} />
-          <meshStandardMaterial map={coatTex} color="#ffffff" metalness={0.09} roughness={0.83} envMapIntensity={0.52} />
-        </mesh>
-        {/* Предплечье в рукаве + кисть натурального цвета */}
-        <group position={[-0.48, 0.69, 0.06]} rotation={[0.08, 0, -0.25]}>
-          <mesh position={[0, -0.035, 0]}>
-            <capsuleGeometry args={[0.095, 0.2, 6, 10]} />
-            <meshStandardMaterial map={coatTex} color="#ffffff" metalness={0.08} roughness={0.85} envMapIntensity={0.5} />
+        {/* Руки — пивот у плеча для качания при ходьбе */}
+        <group ref={leftArmSwingRef} position={[-0.28, 1.06, 0.02]}>
+          <mesh position={[-0.1, -0.13, 0]} rotation={[0.12, 0, -0.35]}>
+            <capsuleGeometry args={[0.095, 0.42, 6, 12]} />
+            <meshStandardMaterial map={coatTex} color="#ffffff" metalness={0.09} roughness={0.83} envMapIntensity={0.52} />
           </mesh>
-          <mesh position={[0, -0.15, 0]}>
-            <capsuleGeometry args={[0.076, 0.11, 6, 10]} />
-            <meshStandardMaterial
-              map={handTex}
-              color="#f2dcc8"
-              metalness={0.04}
-              roughness={0.52}
-              envMapIntensity={0.35}
-              emissive="#c49a7a"
-              emissiveIntensity={0.045}
-            />
-          </mesh>
+          <group position={[-0.18, -0.37, 0]} rotation={[-0.5, 0, -0.25]}>
+            <mesh position={[0, -0.035, 0]}>
+              <capsuleGeometry args={[0.095, 0.2, 6, 10]} />
+              <meshStandardMaterial map={coatTex} color="#ffffff" metalness={0.08} roughness={0.85} envMapIntensity={0.5} />
+            </mesh>
+            <mesh position={[0, -0.15, 0]}>
+              <capsuleGeometry args={[0.076, 0.11, 6, 10]} />
+              <meshStandardMaterial
+                map={handTex}
+                color="#f2dcc8"
+                metalness={0.04}
+                roughness={0.52}
+                envMapIntensity={0.35}
+                emissive="#c49a7a"
+                emissiveIntensity={0.045}
+              />
+            </mesh>
+          </group>
         </group>
-        <group position={[0.48, 0.69, 0.06]} rotation={[0.08, 0, 0.25]}>
-          <mesh position={[0, -0.035, 0]}>
-            <capsuleGeometry args={[0.095, 0.2, 6, 10]} />
-            <meshStandardMaterial map={coatTex} color="#ffffff" metalness={0.08} roughness={0.85} envMapIntensity={0.5} />
+        <group ref={rightArmSwingRef} position={[0.28, 1.06, 0.02]}>
+          <mesh position={[0.1, -0.13, 0]} rotation={[0.12, 0, 0.35]}>
+            <capsuleGeometry args={[0.095, 0.42, 6, 12]} />
+            <meshStandardMaterial map={coatTex} color="#ffffff" metalness={0.09} roughness={0.83} envMapIntensity={0.52} />
           </mesh>
-          <mesh position={[0, -0.15, 0]}>
-            <capsuleGeometry args={[0.076, 0.11, 6, 10]} />
-            <meshStandardMaterial
-              map={handTex}
-              color="#f2dcc8"
-              metalness={0.04}
-              roughness={0.52}
-              envMapIntensity={0.35}
-              emissive="#c49a7a"
-              emissiveIntensity={0.045}
-            />
-          </mesh>
+          <group position={[0.18, -0.37, 0]} rotation={[-0.5, 0, 0.25]}>
+            <mesh position={[0, -0.035, 0]}>
+              <capsuleGeometry args={[0.095, 0.2, 6, 10]} />
+              <meshStandardMaterial map={coatTex} color="#ffffff" metalness={0.08} roughness={0.85} envMapIntensity={0.5} />
+            </mesh>
+            <mesh position={[0, -0.15, 0]}>
+              <capsuleGeometry args={[0.076, 0.11, 6, 10]} />
+              <meshStandardMaterial
+                map={handTex}
+                color="#f2dcc8"
+                metalness={0.04}
+                roughness={0.52}
+                envMapIntensity={0.35}
+                emissive="#c49a7a"
+                emissiveIntensity={0.045}
+              />
+            </mesh>
+          </group>
         </group>
 
         {/* Высокий ворот хаори */}
